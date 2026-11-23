@@ -12,6 +12,7 @@ class Organization(BaseResponse):
     id: UUID = Field(..., description="ID of the organization")
     name: str = Field(..., description="Name of the organization")
     supportEmail: EmailStr = Field(..., description="Support email of the organization")
+    memberCount: int = Field(0, description="Number of users in the organization")
 
 
 class GetAllOrganizationResponse(BaseResponse):

@@ -10,7 +10,7 @@ class CreateOrganizationUserRequest(BaseModel):
 
     @field_validator("role")
     @classmethod
-    def role_not_super_admin(cls, v: UserRole) -> UserRole:
-        if v == UserRole.SUPER_ADMIN:
-            raise ValueError("super_admin users cannot be created through an organization")
+    def role_within_org_scope(cls, v: UserRole) -> UserRole:
+        if v not in (UserRole.PARTICIPANT, UserRole.ORG_ADMIN):
+            raise ValueError("role must be participant or org_admin")
         return v

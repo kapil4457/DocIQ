@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, Callable
+from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -49,24 +49,17 @@ def require_super_admin(user: CurrentUser) -> User:
 SuperAdmin = Annotated[User, Depends(require_super_admin)]
 
 
-def org_access(organization_id: uuid.UUID, user: CurrentUser) -> User:
-    if user.role == UserRole.SUPER_ADMIN:
-        return user
-    if user.organizationId != organization_id:
-        raise ForbiddenError("You do not have access to this organization")
+def require_org_super_admin(organization_id: uuid.UUID, user: CurrentUser) -> User:
+    if user.role != UserRole.ORG_SUPER_ADMIN or user.organizationId != organization_id:
+        raise ForbiddenError("Organization super admin access required")
     return user
 
 
-def OrgMember():
-    """Dependency for endpoints with an {organization_id} path param.
+def _org_super_admin(
+    organization_id: uuid.UUID,
+    user: CurrentUser,
+) -> User:
+    return require_org_super_admin(organization_id, user)
 
-    Usage: user: Annotated[User, Depends(OrgMember())]
-    """
 
-    def dependency(
-        organization_id: uuid.UUID,
-        user: CurrentUser,
-    ) -> User:
-        return org_access(organization_id, user)
-
-    return Depends(dependency)
+OrgSuperAdminDependency = Annotated[User, Depends(_org_super_admin)]

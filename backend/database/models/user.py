@@ -3,16 +3,17 @@ import uuid
 from sqlalchemy import Enum as SAEnum, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
-from database.models.base_model import Base
+from database.models.base_model import Base, AuditMixin
 from typing import Optional
 
 
 class UserRole(str, Enum):
     PARTICIPANT = "participant"
     ORG_ADMIN = "org_admin"
+    ORG_SUPER_ADMIN = "org_super_admin"
     SUPER_ADMIN = "super_admin"
 
-class User(Base):
+class User(Base, AuditMixin):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -4,14 +4,14 @@ import uuid
 from sqlalchemy import Enum as SAEnum, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
-from database.models.base_model import Base
+from database.models.base_model import Base, AuditMixin
 
 
 class Scope(str, Enum):
     WORKSPACE = "workspace"
     GLOBAL = "global"
 
-class Document(Base):
+class Document(Base, AuditMixin):
     __tablename__ = "documents"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
