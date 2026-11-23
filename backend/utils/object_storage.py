@@ -140,6 +140,19 @@ def abort_upload(object_key: str, upload_id: str) -> None:
         )
 
 
+def delete_object(object_key: str) -> None:
+    try:
+        s3_client.delete_object(Bucket=BUCKET_NAME, Key=object_key)
+        logger.info("Object deleted", extra={"extra_data": {"objectKey": object_key}})
+    except ClientError:
+        logger.error(
+            "Failed to delete object",
+            extra={"extra_data": {"objectKey": object_key}},
+            exc_info=True,
+        )
+        raise
+
+
 def finish_upload(object_key: str, upload_id: str, uploaded_parts: list) -> dict:
     if not uploaded_parts:
         abort_upload(object_key, upload_id)

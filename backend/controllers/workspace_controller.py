@@ -10,6 +10,7 @@ from dto.request.update_workspace import UpdateWorkspaceRequest
 from dto.request.add_workspace_member import AddWorkspaceMemberRequest
 from dto.response.get_workspaces import GetAllWorkspacesResponse, WorkspaceResponse
 from dto.response.get_workspace_members import GetWorkspaceMembersResponse
+from dto.response.get_workspace import GetWorkspaceResponse
 from dto.response.base_response import BaseResponse
 from services.workspace_service import (
     create_workspace_handler,
@@ -26,14 +27,14 @@ from utils.auth_dependencies import CurrentUser
 router = APIRouter(prefix="/workspace", tags=["Workspace"])
 
 
-@router.post("/create", response_model=BaseResponse)
+@router.post("/create", response_model=GetWorkspaceResponse)
 def create_workspace(
     request: CreateWorkspaceRequest,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
-    workspace = create_workspace_handler(db, request, user)
-    return BaseResponse(message=str(workspace.id))
+    result = create_workspace_handler(db, request, user)
+    return GetWorkspaceResponse(**result, message="Workspace created successfully")
 
 
 @router.get("/list", response_model=GetAllWorkspacesResponse)
@@ -53,14 +54,14 @@ def get_workspaces(
     )
 
 
-@router.get("/{workspace_id}", response_model=BaseResponse)
+@router.get("/{workspace_id}", response_model=GetWorkspaceResponse)
 def get_workspace(
     workspace_id: uuid.UUID,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
-    workspace = get_workspace_handler(db, workspace_id, user)
-    return BaseResponse(message=workspace.name)
+    result = get_workspace_handler(db, workspace_id, user)
+    return GetWorkspaceResponse(**result, message="Workspace fetched successfully")
 
 
 @router.patch("/{workspace_id}", response_model=BaseResponse)

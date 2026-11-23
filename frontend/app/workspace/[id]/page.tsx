@@ -14,6 +14,10 @@ import {
   Trash2,
   X,
   UserPlus,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Check,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -76,6 +80,8 @@ function WorkspaceInner({ params }: { params: Promise<{ id: string }> }) {
   const [shareOpen, setShareOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
+  const [docCount, setDocCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isCreator = workspace?.creatorId === user?.userId;
@@ -185,6 +191,10 @@ function WorkspaceInner({ params }: { params: Promise<{ id: string }> }) {
             {workspace.memberCount} {workspace.memberCount === 1 ? "member" : "members"}
           </p>
         </div>
+        <Button variant="ghost" size="sm" onClick={() => setDocsOpen(true)}>
+          <FileText className="size-4" />
+          Documents{docCount !== null ? ` (${docCount})` : ""}
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => setUploadOpen(true)}>
           <Upload className="size-4" />
           Upload
@@ -278,9 +288,22 @@ function WorkspaceInner({ params }: { params: Promise<{ id: string }> }) {
         onClose={() => setRenameOpen(false)}
         onRenamed={(name) => setWorkspace({ ...workspace, name })}
       />
-      <ShareDialog open={shareOpen} workspaceId={workspace.id} onClose={() => setShareOpen(false)} />
+      <ShareDialog open={shareOpen} workspaceId={workspace.id} canManage={canManage} onClose={() => setShareOpen(false)} />
       <DeleteDialog open={deleteOpen} workspaceId={workspace.id} name={workspace.name} onClose={() => setDeleteOpen(false)} />
-      <UploadDialog open={uploadOpen} workspaceId={workspace.id} workspaceName={workspace.name} onClose={() => setUploadOpen(false)} />
+      <UploadDialog
+        open={uploadOpen}
+        workspaceId={workspace.id}
+        workspaceName={workspace.name}
+        onClose={() => setUploadOpen(false)}
+        onUploaded={() => loadWorkspace()}
+      />
+      <DocumentsPanel
+        open={docsOpen}
+        workspaceId={workspace.id}
+        onClose={() => setDocsOpen(false)}
+        onChanged={() => loadWorkspace()}
+        onCountChange={setDocCount}
+      />
     </main>
   );
 }
@@ -359,13 +382,13 @@ function RenameDialog({
   onClose: () => void;
   onRenamed: (name: string) => void;
 }) {
-  const [name, setName] = useState(workspace.name);
+  const [name, setName] = useState(workspace.name ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setName(workspace.name);
+      setName(workspace.name ?? "");
       setError(null);
     }
   }, [open, workspace.name]);
@@ -415,10 +438,12 @@ function RenameDialog({
 function ShareDialog({
   open,
   workspaceId,
+  canManage,
   onClose,
 }: {
   open: boolean;
   workspaceId: string;
+  canManage: boolean;
   onClose: () => void;
 }) {
   const [members, setMembers] = useState<MemberRow[]>([]);
@@ -468,22 +493,28 @@ function ShareDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogHeader>
         <DialogTitle>Workspace members</DialogTitle>
-        <DialogDescription>Share this workspace with people in your organization.</DialogDescription>
+        <DialogDescription>
+          {canManage
+            ? "Share this workspace with people in your organization."
+            : "People who have access to this workspace."}
+        </DialogDescription>
       </DialogHeader>
       <DialogClose onClose={onClose} />
       <div className="space-y-4">
-        <div className="flex gap-2">
-          <Input
-            type="email"
-            placeholder="teammate@company.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <Button onClick={addMember} disabled={!email.trim() || adding}>
-            {adding ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
-            Add
-          </Button>
-        </div>
+        {canManage && (
+          <div className="flex gap-2">
+            <Input
+              type="email"
+              placeholder="teammate@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <Button onClick={addMember} disabled={!email.trim() || adding}>
+              {adding ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+              Add
+            </Button>
+          </div>
+        )}
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>}
         {loading ? (
           <div className="flex justify-center py-8">
@@ -503,7 +534,7 @@ function ShareDialog({
                 {m.isCreator ? (
                   <Badge>creator</Badge>
                 ) : (
-                  m.id !== user?.userId && (
+                  canManage && (
                     <Button
                       variant="ghost"
                       size="icon"
@@ -580,16 +611,33 @@ function UploadDialog({
   workspaceId,
   workspaceName,
   onClose,
+  onUploaded,
 }: {
   open: boolean;
   workspaceId: string;
   workspaceName: string;
   onClose: () => void;
+  onUploaded: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [customName, setCustomName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string }[]>([]);
+  const [versionOf, setVersionOf] = useState<string>("new");
+
+  useEffect(() => {
+    if (!open) return;
+    setFile(null);
+    setCustomName("");
+    setError(null);
+    setVersionOf("new");
+    apiFetch<{ documents: { documentId: string; name: string }[] }>(
+      `/document/list?workspaceId=${workspaceId}&pageSize=100`
+    )
+      .then((res) => setExistingDocs(res.documents))
+      .catch(() => setExistingDocs([]));
+  }, [open, workspaceId]);
 
   const startUpload = async () => {
     if (!file) return;
@@ -604,6 +652,7 @@ function UploadDialog({
         body: JSON.stringify({
           scope: "workspace",
           workspaceId,
+          documentId: versionOf === "new" ? null : versionOf,
           documentName: customName || file.name,
           mediaType: mediaTypeFor(file.name),
           fileSize: file.size,
@@ -628,6 +677,7 @@ function UploadDialog({
         body: JSON.stringify({ uploadId: register.upload.uploadId, parts }),
       });
 
+      onUploaded();
       onClose();
       setFile(null);
       setCustomName("");
@@ -670,6 +720,22 @@ function UploadDialog({
           )}
         </label>
         <div className="space-y-1.5">
+          <Label htmlFor="ws-doc-version">Add as</Label>
+          <select
+            id="ws-doc-version"
+            value={versionOf}
+            onChange={(e) => setVersionOf(e.target.value)}
+            className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50"
+          >
+            <option value="new">New document</option>
+            {existingDocs.map((d) => (
+              <option key={d.documentId} value={d.documentId}>
+                New version of: {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
           <Label htmlFor="ws-doc-name">Custom name</Label>
           <Input
             id="ws-doc-name"
@@ -697,4 +763,340 @@ function mediaTypeFor(filename: string): string {
     pdf: "pdf", docx: "docx", txt: "txt", md: "md", png: "png", html: "html", csv: "csv",
   };
   return map[ext] ?? "txt";
+}
+
+interface DocVersion {
+  versionId: string;
+  status: "pending" | "available" | "aborted";
+  isActive: boolean;
+  uploadedByName: string | null;
+  fileSize: number | null;
+  createdAt: string;
+}
+
+interface DocRow {
+  documentId: string;
+  name: string;
+  uploadedByName: string | null;
+  createdAt: string;
+  versionCount: number;
+  versions: DocVersion[];
+}
+
+function DocumentsPanel({
+  open,
+  workspaceId,
+  onClose,
+  onChanged,
+  onCountChange,
+}: {
+  open: boolean;
+  workspaceId: string;
+  onClose: () => void;
+  onChanged: () => void;
+  onCountChange: (count: number) => void;
+}) {
+  const [docs, setDocs] = useState<DocRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDocId, setConfirmDocId] = useState<string | null>(null);
+  const [confirmVersionId, setConfirmVersionId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const PAGE_SIZE = 8;
+
+  const load = useCallback(async (p: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch<PagedDocs>(`/document/list?workspaceId=${workspaceId}&page=${p}&pageSize=${PAGE_SIZE}`);
+      setDocs(res.documents);
+      setTotal(res.total);
+      onCountChange(res.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load documents");
+    } finally {
+      setLoading(false);
+    }
+  }, [workspaceId, onCountChange]);
+
+  useEffect(() => {
+    if (open) {
+      setPage(1);
+      setExpandedId(null);
+      setConfirmDocId(null);
+      setConfirmVersionId(null);
+      load(1);
+    }
+  }, [open, load]);
+
+  useEffect(() => {
+    if (open) load(page);
+  }, [page, open, load]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  const deleteDocument = async (documentId: string) => {
+    setDeleting(true);
+    try {
+      await apiFetch(`/document/${documentId}`, { method: "DELETE" });
+      setConfirmDocId(null);
+      const remainingOnPage = docs.length - 1;
+      if (remainingOnPage === 0 && page > 1) setPage(page - 1);
+      else await load(page);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete document");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const deleteVersion = async (documentId: string, versionId: string) => {
+    setDeleting(true);
+    try {
+      await apiFetch(`/document/${documentId}/versions/${versionId}`, { method: "DELETE" });
+      setConfirmVersionId(null);
+      await load(page);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete version");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-3xl rounded-2xl border border-zinc-200/80 bg-white shadow-xl animate-in slide-up-fade duration-300 ease-out-soft dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-center justify-between border-b border-zinc-200/70 px-5 py-4 dark:border-zinc-800/70">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight">Workspace documents</h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {total} {total === 1 ? "document" : "documents"} · click a row to see its version trail
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        <div className="max-h-[70vh] overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="size-6 animate-spin text-zinc-400" />
+            </div>
+          ) : error ? (
+            <p className="py-8 text-center text-sm text-red-600 dark:text-red-400">{error}</p>
+          ) : docs.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-14 text-center">
+              <FileText className="size-8 text-zinc-300 dark:text-zinc-600" />
+              <p className="text-sm font-medium">No documents yet</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Use the Upload button to add the first one.</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200/70 text-left text-xs uppercase tracking-wider text-zinc-400 dark:border-zinc-800/70">
+                  <th className="px-3 py-2.5 font-medium">Document</th>
+                  <th className="px-3 py-2.5 font-medium">Versions</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docs.map((doc) => (
+                  <DocumentRow
+                    key={doc.documentId}
+                    doc={doc}
+                    expanded={expandedId === doc.documentId}
+                    onToggle={() => setExpandedId(expandedId === doc.documentId ? null : doc.documentId)}
+                    confirmDocDelete={confirmDocId === doc.documentId}
+                    onConfirmDocDelete={() => setConfirmDocId(doc.documentId)}
+                    onCancelDocDelete={() => setConfirmDocId(null)}
+                    onDeleteDoc={() => deleteDocument(doc.documentId)}
+                    confirmVersionId={confirmVersionId}
+                    onConfirmVersionDelete={(vid) => setConfirmVersionId(vid)}
+                    onCancelVersionDelete={() => setConfirmVersionId(null)}
+                    onDeleteVersion={(vid) => deleteVersion(doc.documentId, vid)}
+                    deleting={deleting}
+                  />
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {total > PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-zinc-200/70 px-5 py-3 dark:border-zinc-800/70">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{total} total</p>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                <ChevronLeft className="size-4" />
+                Prev
+              </Button>
+              <span className="px-2 text-sm tabular-nums text-zinc-600 dark:text-zinc-300">
+                {page} of {totalPages}
+              </span>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                Next
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+interface PagedDocs {
+  documents: DocRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+function DocumentRow({
+  doc,
+  expanded,
+  onToggle,
+  confirmDocDelete,
+  onConfirmDocDelete,
+  onCancelDocDelete,
+  onDeleteDoc,
+  confirmVersionId,
+  onConfirmVersionDelete,
+  onCancelVersionDelete,
+  onDeleteVersion,
+  deleting,
+}: {
+  doc: DocRow;
+  expanded: boolean;
+  onToggle: () => void;
+  confirmDocDelete: boolean;
+  onConfirmDocDelete: () => void;
+  onCancelDocDelete: () => void;
+  onDeleteDoc: () => void;
+  confirmVersionId: string | null;
+  onConfirmVersionDelete: (vid: string) => void;
+  onCancelVersionDelete: () => void;
+  onDeleteVersion: (vid: string) => void;
+  deleting: boolean;
+}) {
+  return (
+    <>
+      <tr
+        className={`border-b border-zinc-100 cursor-pointer transition-colors hover:bg-zinc-50/70 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30 ${expanded ? "bg-zinc-50/70 dark:bg-zinc-800/30" : ""}`}
+        onClick={onToggle}
+      >
+        <td className="px-3 py-3">
+          <div className="flex items-center gap-2.5">
+            <ChevronDown className={`size-4 text-zinc-400 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+            <FileText className="size-4 shrink-0 text-zinc-400" />
+            <div className="min-w-0">
+              <p className="truncate font-medium">{doc.name}</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                by {doc.uploadedByName ?? "Unknown"} · {new Date(doc.createdAt).toLocaleDateString()}
+              </p>
+            </div>
+          </div>
+        </td>
+        <td className="px-3 py-3">
+          <Badge>
+            {doc.versionCount} {doc.versionCount === 1 ? "version" : "versions"}
+          </Badge>
+        </td>
+        <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+          {confirmDocDelete ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Button variant="destructive" size="sm" onClick={onDeleteDoc} disabled={deleting}>
+                {deleting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                Delete trail
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onCancelDocDelete}>Cancel</Button>
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+              aria-label={`Delete ${doc.name}`}
+              onClick={onConfirmDocDelete}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-zinc-100 dark:border-zinc-800/50">
+          <td colSpan={3} className="px-3 pb-4 pt-1">
+            <div className="ml-6 max-h-56 overflow-y-auto rounded-xl border border-zinc-200/70 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                Version trail · newest first
+              </p>
+              <ol className="relative space-y-2.5 border-l border-zinc-200 pl-4 dark:border-zinc-700">
+                {doc.versions.map((v) => (
+                  <li key={v.versionId} className="relative flex items-center gap-2.5 animate-in rise-in-sm duration-300 ease-out-soft">
+                    <span
+                      className={`absolute -left-[21px] size-2.5 rounded-full border-2 border-zinc-50 dark:border-zinc-900 ${
+                        v.status === "available"
+                          ? "bg-emerald-500"
+                          : v.status === "pending"
+                            ? "bg-amber-400"
+                            : "bg-zinc-300 dark:bg-zinc-600"
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-2 text-xs">
+                        <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">
+                          {v.versionId.slice(0, 8)}
+                        </span>
+                        {v.isActive && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                            Active · used for answers
+                          </span>
+                        )}
+                        {v.status === "pending" && <span className="text-amber-600 dark:text-amber-400">uploading</span>}
+                        {v.status === "aborted" && <span className="text-zinc-400">aborted</span>}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {v.uploadedByName ?? "Unknown"} · {new Date(v.createdAt).toLocaleString()}
+                        {v.fileSize !== null && ` · ${(v.fileSize / 1024).toFixed(0)} KB`}
+                      </p>
+                    </div>
+                    {confirmVersionId === v.versionId ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Button variant="destructive" size="sm" onClick={() => onDeleteVersion(v.versionId)} disabled={deleting}>
+                          {deleting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                          Sure?
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={onCancelVersionDelete}>Cancel</Button>
+                      </span>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-zinc-300 hover:text-red-600 dark:text-zinc-600 dark:hover:text-red-400"
+                        aria-label="Delete this version"
+                        onClick={() => onConfirmVersionDelete(v.versionId)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
 }

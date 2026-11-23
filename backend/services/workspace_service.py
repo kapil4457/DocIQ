@@ -77,19 +77,35 @@ def create_workspace_handler(db: Session, request: CreateWorkspaceRequest, curre
     ))
     db.commit()
     db.refresh(workspace)
+    member_count = db.scalar(
+        select(func.count()).select_from(WorkspaceMember).where(WorkspaceMember.workspaceId == workspace.id)
+    ) or 0
     log_event(
         logger, "Workspace created",
         workspaceId=workspace.id,
         organizationId=workspace.organizationId,
         createdBy=str(current_user.id),
     )
-    return workspace
+    return {
+        "id": workspace.id,
+        "name": workspace.name,
+        "creatorId": workspace.userId,
+        "memberCount": member_count,
+    }
 
 
-def get_workspace_handler(db: Session, workspace_id: uuid.UUID, current_user) -> Workspace:
+def get_workspace_handler(db: Session, workspace_id: uuid.UUID, current_user) -> dict:
     workspace = get_workspace_or_404(db, workspace_id)
     assert_workspace_access(db, workspace, current_user)
-    return workspace
+    member_count = db.scalar(
+        select(func.count()).select_from(WorkspaceMember).where(WorkspaceMember.workspaceId == workspace.id)
+    ) or 0
+    return {
+        "id": workspace.id,
+        "name": workspace.name,
+        "creatorId": workspace.userId,
+        "memberCount": member_count,
+    }
 
 
 def get_all_workspaces_handler(db: Session, current_user, page: int, page_size: int) -> dict:
@@ -239,6 +255,8 @@ def remove_workspace_member_handler(db: Session, workspace_id: uuid.UUID, member
     if membership is None:
         raise NotFoundError("User is not a member of this workspace")
 
+    _abort_member_pending_uploads(db, workspace, member_user_id)
+
     db.delete(membership)
     db.commit()
     log_event(
@@ -248,3 +266,29 @@ def remove_workspace_member_handler(db: Session, workspace_id: uuid.UUID, member
         removedBy=str(current_user.id),
     )
     return {"message": "Member removed from workspace"}
+
+
+def _abort_member_pending_uploads(db: Session, workspace: Workspace, member_user_id: uuid.UUID) -> None:
+    """Aborting in-flight uploads of a removed member prevents orphaned PENDING
+    versions that no remaining member could ever complete."""
+    from database.models.document_version import DocumentVersion, DocumentVersionStatus
+    from utils.object_storage import abort_upload as abort_object_upload
+
+    pending = db.scalars(
+        select(DocumentVersion).where(
+            DocumentVersion.workspaceId == workspace.id,
+            DocumentVersion.createdBy == member_user_id,
+            DocumentVersion.status == DocumentVersionStatus.PENDING,
+        )
+    ).all()
+
+    for version in pending:
+        if version.uploadId and version.objectKey:
+            abort_object_upload(version.objectKey, version.uploadId)
+        version.status = DocumentVersionStatus.ABORTED
+        log_event(
+            logger, "Removed member's pending upload aborted",
+            versionId=version.versionId,
+            workspaceId=workspace.id,
+            userId=member_user_id,
+        )
