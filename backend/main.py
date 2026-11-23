@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from controllers.base_controller import router as health_router
 from controllers.organization_controller import router as organization_router
 from controllers.user_controller import router as user_router
+from controllers.workspace_controller import router as workspace_router
 from controllers.document_controller import router as document_router
 from utils.logger import setup_logging
 from utils.exception_handler import global_exception_handler, AppError
@@ -46,4 +47,5 @@ app.add_exception_handler(Exception, global_exception_handler)
 app.include_router(health_router)
 app.include_router(organization_router)
 app.include_router(user_router)
+app.include_router(workspace_router)
 app.include_router(document_router)
