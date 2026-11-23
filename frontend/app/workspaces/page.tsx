@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { MessageSquare, Plus, Clock, Loader2, FolderOpen, ChevronLeft, ChevronRight } from "lucide-react";
+import { MessageSquare, Plus, Users, Loader2, FolderOpen, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -10,8 +10,8 @@ import { apiFetch } from "@/lib/api";
 interface WorkspaceRow {
   id: string;
   name: string;
-  messageCount: number;
-  lastActive: string;
+  creatorId: string;
+  memberCount: number;
 }
 
 interface PagedWorkspaces {
@@ -37,10 +37,13 @@ export default function WorkspacesPage() {
         setLoading(false);
         return;
       }
+      if (user.role === "super_admin") {
+        router.replace("/");
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
-        // TODO: swap for the real workspace list endpoint once it exists
         const res = await apiFetch<PagedWorkspaces>(`/workspace/list?page=${p}&pageSize=${PAGE_SIZE}`);
         setData(res);
       } catch (err) {
@@ -50,7 +53,7 @@ export default function WorkspacesPage() {
         setLoading(false);
       }
     },
-    [user?.userId]
+    [user?.userId, user?.role, router]
   );
 
   useEffect(() => {
@@ -68,10 +71,12 @@ export default function WorkspacesPage() {
             Pick up any conversation where you left off.
           </p>
         </div>
-        <Button onClick={() => router.push("/")}>
-          <Plus className="size-4" />
-          New workspace
-        </Button>
+        {user?.role !== "super_admin" && (
+          <Button onClick={() => router.push("/")}>
+            <Plus className="size-4" />
+            New workspace
+          </Button>
+        )}
       </div>
 
       <div className="mt-8">
@@ -123,8 +128,8 @@ export default function WorkspacesPage() {
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{ws.name}</span>
                       <span className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                        <Clock className="size-3" />
-                        {ws.messageCount} messages · {ws.lastActive}
+                        <Users className="size-3" />
+                        {ws.memberCount} {ws.memberCount === 1 ? "member" : "members"}
                       </span>
                     </span>
                   </button>

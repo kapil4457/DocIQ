@@ -25,7 +25,7 @@ from services.shared import (
 logger = logging.getLogger("app.services.document")
 
 
-def _authorize_upload(current_user, scope: str, organization_id: uuid.UUID) -> None:
+def _authorize_upload(db: Session, current_user, scope: str, organization_id: uuid.UUID, workspace_id) -> None:
     assert_super_admin_cannot_upload(current_user)
     forbid(
         scope == "global" and current_user.role != UserRole.ORG_ADMIN,
@@ -35,6 +35,27 @@ def _authorize_upload(current_user, scope: str, organization_id: uuid.UUID) -> N
         role=current_user.role.value,
     )
     assert_can_manage_organization_docs(current_user, organization_id)
+    if scope == "workspace":
+        from database.models.workspace import Workspace, WorkspaceMember
+        from sqlalchemy import select, func
+
+        forbid(workspace_id is None, "workspaceId is required for workspace-scoped documents")
+        workspace = db.get(Workspace, workspace_id)
+        not_found(workspace is None, "Workspace not found", logger, workspaceId=str(workspace_id))
+        forbid(
+            workspace.organizationId != organization_id or workspace.organizationId != current_user.organizationId,
+            "Workspace does not belong to your organization",
+            logger,
+            userId=str(current_user.id),
+            workspaceId=str(workspace_id),
+        )
+        is_member = db.scalar(
+            select(func.count()).select_from(WorkspaceMember).where(
+                WorkspaceMember.workspaceId == workspace.id,
+                WorkspaceMember.userId == current_user.id,
+            )
+        )
+        forbid(not is_member, "You are not a member of this workspace", logger, userId=str(current_user.id))
 
 
 def _get_or_create_document(db: Session, request: RegisterDocumentRequest) -> Document:
@@ -82,7 +103,7 @@ def _create_pending_version(db: Session, document: Document, request: RegisterDo
 
 
 def register_document_handler(db: Session, request: RegisterDocumentRequest, current_user) -> RegisterDocumentResponse:
-    _authorize_upload(current_user, request.scope, request.organizationId)
+    _authorize_upload(db, current_user, request.scope, request.organizationId, request.workspaceId)
     log_event(
         logger,
         "Registering document",
@@ -182,7 +203,7 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
     document = get_or_404(
         db, Document, document_version.documentId, logger, "Parent document not found",
     )
-    _authorize_upload(current_user, document.scope.value, document.organizationId)
+    _authorize_upload(db, current_user, document.scope.value, document.organizationId, document.workspaceId)
 
     uploaded_parts = [{"PartNumber": part.partNumber, "ETag": part.etag} for part in request.parts]
 

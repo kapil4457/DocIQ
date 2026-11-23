@@ -7,20 +7,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
 
 export default function HomePage() {
   const router = useRouter();
   const user = useAuth();
   const [workspaceName, setWorkspaceName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const createWorkspace = async () => {
     if (!workspaceName.trim() || !user) return;
     setCreating(true);
+    setError(null);
     try {
-      // TODO: POST /workspace/create once wired; navigate to the new workspace
-      await new Promise((r) => setTimeout(r, 600));
-      router.push(`/workspace/new?name=${encodeURIComponent(workspaceName.trim())}`);
+      await apiFetch("/workspace/create", {
+        method: "POST",
+        body: JSON.stringify({ name: workspaceName.trim() }),
+      });
+      router.push("/workspaces");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create workspace");
     } finally {
       setCreating(false);
     }
@@ -92,6 +99,11 @@ export default function HomePage() {
                       Create
                     </Button>
                   </div>
+                  {error && (
+                    <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+                      {error}
+                    </p>
+                  )}
                   {!user && (
                     <p className="mt-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
                       Accounts are created by your organization&apos;s administrator.{" "}
