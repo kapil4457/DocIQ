@@ -1,17 +1,13 @@
-from fastapi import APIRouter,status, Response
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from database.db_engine import get_db
 from dto.request.create_organization import CreateOrganizationRequest
 from dto.response.create_organization import CreateOrganizationResponse
-router = APIRouter(prefix="/organization",tags=["Organization"])
+from services.organization_service import create_organization_handler
 
-@router.post("/create")
-async def create_organization(request: CreateOrganizationRequest) -> CreateOrganizationResponse:
-    pass
-
-@router.get("/list")
-async def get_organizations():
-    pass
+router = APIRouter(prefix="/organization", tags=["Organization"])
 
 
-@router.get("/{organization_id}")
-async def get_organization_by_id(organization_id: str):
-    pass
+@router.post("/create", response_model=CreateOrganizationResponse)
+def create_organization(request: CreateOrganizationRequest, db: Session = Depends(get_db)):
+    return create_organization_handler(db, request)

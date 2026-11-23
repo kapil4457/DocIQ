@@ -1,5 +1,16 @@
-from pydantic import BaseModel, Field, EmailStr
+from uuid import UUID
+from pydantic import ConfigDict, Field
+from dto.response.base_response import BaseResponse
 
-class CreateOrganizationResponse(BaseModel):
-    name: str = Field(...,description="Name of the organization", min_length=1)
-    supportEmail: EmailStr = Field(..., description="Support email address of the organization")
+
+class CreateOrganizationResponse(BaseResponse):
+    model_config = ConfigDict(
+        from_attributes=True,  
+        populate_by_name=True, 
+    )
+
+    organizationId: UUID = Field(
+        ...,
+        validation_alias="id",
+        description="ID of the organization created",
+    )

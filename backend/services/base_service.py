@@ -65,3 +65,11 @@ def check_pgvector() -> tuple[bool, str | None]:
             text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
         ).scalar()
     return (True, "enabled") if ext else (False, "vector extension missing")
+
+
+@register_health_check("object-storage")
+def check_object_storage() -> tuple[bool, str | None]:
+    from utils.object_storage import s3_client, BUCKET_NAME
+
+    s3_client.head_bucket(Bucket=BUCKET_NAME)
+    return True, "bucket accessible"

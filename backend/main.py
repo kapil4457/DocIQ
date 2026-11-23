@@ -1,7 +1,12 @@
 from contextlib import asynccontextmanager
-from fastapi import  FastAPI
+from fastapi import FastAPI
 from controllers.base_controller import router as health_router
-from utils.logger import setup_logging  
+from controllers.organization_controller import router as organization_router
+from controllers.user_controller import router as user_router
+from controllers.document_controller import router as document_router
+from utils.logger import setup_logging
+from utils.exception_handler import global_exception_handler, AppError
+from utils.object_storage import ensure_bucket
 from database.db_engine import init_db
 import logging
 
@@ -15,8 +20,15 @@ async def lifespan(app: FastAPI):
     logger.info("Starting DocIQ backend...")
     init_db()
     logger.info("Database initialized successfully")
+    ensure_bucket()
+    logger.info("Object storage ready")
     yield
     logger.info("Shutting down DocIQ backend...")
 
 app = FastAPI(lifespan=lifespan)
+app.add_exception_handler(AppError, global_exception_handler)
+app.add_exception_handler(Exception, global_exception_handler)
 app.include_router(health_router)
+app.include_router(organization_router)
+app.include_router(user_router)
+app.include_router(document_router)

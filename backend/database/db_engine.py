@@ -5,10 +5,8 @@ from database.models.base_model import Base
 from config import get_database_url
 
 from database.models import (  # noqa: F401
-    workspace
+     document, document_embedding, document_version, organization, user, workspace
 )
-from database.models import document, document_embedding, document_version, organization, user
-
 engine = create_engine(get_database_url(), pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
