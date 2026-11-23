@@ -19,6 +19,7 @@ class CompleteUploadResponse(BaseResponse):
     sourceUrl: str = Field(..., description="URL where the document is available")
     fileSize: int = Field(..., description="Size of the stored object in bytes")
     etag: str = Field(..., description="ETag of the stored object")
+    hash: Optional[str] = Field(None, description="SHA-256 content hash when the client supplied one, otherwise the storage ETag")
     workspaceId: Optional[UUID] = Field(None, description="Workspace under which it was uploaded")
     organizationId: UUID = Field(..., description="Organization to which this document belongs")
     documentName: str = Field(..., description="Name of the document")

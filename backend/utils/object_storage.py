@@ -65,9 +65,58 @@ def ensure_bucket() -> None:
         logger.error("Failed to create bucket", extra={"extra_data": {"bucket": BUCKET_NAME}}, exc_info=True)
         raise
 
+    apply_cors_configuration()
+
+
+def apply_cors_configuration() -> None:
+    """Browsers PUT parts directly to R2 with presigned URLs; without a bucket CORS
+    policy the preflight fails and the upload never starts. ETag must be exposed so
+    the browser can read it for the complete call."""
+    cors_origins = [
+        origin.strip()
+        for origin in os.getenv("R2_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+        if origin.strip()
+    ]
+    cors_config = {
+        "CORSRules": [
+            {
+                "AllowedOrigins": cors_origins,
+                "AllowedMethods": ["PUT", "GET"],
+                "AllowedHeaders": ["*"],
+                "ExposeHeaders": ["ETag"],
+                "MaxAgeSeconds": 3600,
+            }
+        ]
+    }
+    try:
+        s3_client.put_bucket_cors(Bucket=BUCKET_NAME, CORSConfiguration=cors_config)
+        logger.info(
+            "Bucket CORS policy applied",
+            extra={"extra_data": {"bucket": BUCKET_NAME, "allowedOrigins": cors_origins}},
+        )
+    except ClientError:
+        logger.warning(
+            "Could not set bucket CORS policy (token may lack bucket-admin permissions). "
+            "Browser uploads will fail until CORS is configured in the Cloudflare dashboard.",
+            extra={"extra_data": {"bucket": BUCKET_NAME}},
+            exc_info=True,
+        )
+
 
 def build_object_url(object_key: str) -> str:
     return f"{ENDPOINT}/{BUCKET_NAME}/{object_key}"
+
+
+def download_url(object_key: str, filename: str) -> str:
+    return s3_client.generate_presigned_url(
+        ClientMethod="get_object",
+        Params={
+            "Bucket": BUCKET_NAME,
+            "Key": object_key,
+            "ResponseContentDisposition": f'attachment; filename="{filename}"',
+        },
+        ExpiresIn=PRESIGN_EXPIRY_SECONDS,
+    )
 
 
 def start_upload(object_key: str, file_size_bytes: int) -> dict:

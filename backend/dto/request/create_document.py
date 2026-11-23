@@ -8,7 +8,7 @@ class RegisterDocumentRequest(BaseModel):
     workspaceId: Optional[UUID] = Field(None, description="Workspace under which it was uploaded")
     documentId: Optional[UUID] = Field(None, description="Parent document under which it is being uploaded")
     scope: Scope = Field(..., description="Scope of the document")
-    organizationId: UUID = Field(..., description="Organization to which this document belongs")
+    organizationId: Optional[UUID] = Field(None, description="Organization to which this document belongs; derived from the workspace when workspace-scoped")
     documentName: str = Field(..., description="Original name of the source file", min_length=1)
     mediaType: MediaType = Field(..., description="Media type of the source file")
     fileSize: int = Field(..., gt=0, description="Size of the file in bytes")

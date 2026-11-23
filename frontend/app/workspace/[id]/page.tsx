@@ -2,6 +2,7 @@
 
 import { use, Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { sha256 } from "js-sha256";
 import {
   SendHorizontal,
   ArrowLeft,
@@ -18,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  Download,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -646,7 +648,7 @@ function UploadDialog({
     try {
       const register = await apiFetch<{
         versionId: string;
-        upload: { uploadId: string; objectKey: string; partUrls: { partNumber: number; url: string }[] };
+        upload: { uploadId: string; objectKey: string; chunkSize: number; partUrls: { partNumber: number; url: string }[] };
       }>("/document/register/init", {
         method: "POST",
         body: JSON.stringify({
@@ -659,22 +661,26 @@ function UploadDialog({
         }),
       });
 
+      const hasher = sha256.create();
+      const chunkSize = register.upload.chunkSize * 1024 * 1024;
       const parts: { partNumber: number; etag: string }[] = [];
       for (const part of register.upload.partUrls) {
+        const start = (part.partNumber - 1) * chunkSize;
+        const end = Math.min(part.partNumber * chunkSize, file.size);
+        const chunk = file.slice(start, end);
+        hasher.update(await chunk.arrayBuffer());
         const res = await fetch(part.url, {
           method: "PUT",
-          body: file.slice(
-            (part.partNumber - 1) * 10 * 1024 * 1024,
-            Math.min(part.partNumber * 10 * 1024 * 1024, file.size)
-          ),
+          body: chunk,
         });
         if (!res.ok) throw new Error(`Part ${part.partNumber} upload failed`);
         parts.push({ partNumber: part.partNumber, etag: res.headers.get("ETag") ?? "" });
       }
+      const fileHash = hasher.hex();
 
       await apiFetch(`/document/register/${register.versionId}/complete`, {
         method: "POST",
-        body: JSON.stringify({ uploadId: register.upload.uploadId, parts }),
+        body: JSON.stringify({ uploadId: register.upload.uploadId, parts, hash: fileHash }),
       });
 
       onUploaded();
@@ -805,6 +811,7 @@ function DocumentsPanel({
   const [confirmDocId, setConfirmDocId] = useState<string | null>(null);
   const [confirmVersionId, setConfirmVersionId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [downloadingVersionId, setDownloadingVersionId] = useState<string | null>(null);
   const PAGE_SIZE = 8;
 
   const load = useCallback(async (p: number) => {
@@ -868,6 +875,25 @@ function DocumentsPanel({
     }
   };
 
+  const downloadVersion = async (documentId: string, versionId: string, fallbackName: string) => {
+    setDownloadingVersionId(versionId);
+    try {
+      const res = await apiFetch<{ url: string; filename: string }>(
+        `/document/${documentId}/versions/${versionId}/download`
+      );
+      const anchor = window.document.createElement("a");
+      anchor.href = res.url;
+      anchor.download = res.filename || fallbackName;
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start download");
+    } finally {
+      setDownloadingVersionId(null);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return createPortal(
@@ -924,6 +950,8 @@ function DocumentsPanel({
                     onCancelVersionDelete={() => setConfirmVersionId(null)}
                     onDeleteVersion={(vid) => deleteVersion(doc.documentId, vid)}
                     deleting={deleting}
+                    downloadingVersionId={downloadingVersionId}
+                    onDownloadVersion={(vid, name) => downloadVersion(doc.documentId, vid, name)}
                   />
                 ))}
               </tbody>
@@ -975,6 +1003,8 @@ function DocumentRow({
   onCancelVersionDelete,
   onDeleteVersion,
   deleting,
+  downloadingVersionId,
+  onDownloadVersion,
 }: {
   doc: DocRow;
   expanded: boolean;
@@ -988,6 +1018,8 @@ function DocumentRow({
   onCancelVersionDelete: () => void;
   onDeleteVersion: (vid: string) => void;
   deleting: boolean;
+  downloadingVersionId: string | null;
+  onDownloadVersion: (vid: string, filename: string) => void;
 }) {
   return (
     <>
@@ -1071,6 +1103,20 @@ function DocumentRow({
                         {v.fileSize !== null && ` · ${(v.fileSize / 1024).toFixed(0)} KB`}
                       </p>
                     </div>
+                    {v.status === "available" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                        aria-label="Download this version"
+                        disabled={downloadingVersionId === v.versionId}
+                        onClick={() => onDownloadVersion(v.versionId, doc.name)}
+                      >
+                        {downloadingVersionId === v.versionId
+                          ? <Loader2 className="size-3.5 animate-spin" />
+                          : <Download className="size-3.5" />}
+                      </Button>
+                    )}
                     {confirmVersionId === v.versionId ? (
                       <span className="inline-flex items-center gap-1">
                         <Button variant="destructive" size="sm" onClick={() => onDeleteVersion(v.versionId)} disabled={deleting}>

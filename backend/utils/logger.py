@@ -1,8 +1,21 @@
 import json
 import logging
 import logging.config
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, date, timezone
+from enum import Enum
 from pathlib import Path
+
+def _json_default(obj):
+    if isinstance(obj, (uuid.UUID,)):
+        return str(obj)
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    return str(obj)
 
 class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -17,11 +30,11 @@ class JSONFormatter(logging.Formatter):
         }
         if record.exc_info:
             log_record["exception"] = self.formatException(record.exc_info)
-        
+
         if hasattr(record, "extra_data"):
             log_record["extra"] = record.extra_data
 
-        return json.dumps(log_record)
+        return json.dumps(log_record, default=_json_default)
 
 class ExcludeHealthCheckFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:

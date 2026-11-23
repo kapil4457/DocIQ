@@ -18,6 +18,7 @@ from services.document_service import (
     delete_document_handler,
     get_workspace_documents_handler,
     delete_document_version_handler,
+    get_document_version_download_handler,
 )
 from utils.auth_dependencies import CurrentUser
 from utils.exception_handler import NotFoundError, ForbiddenError, ConflictError, ObjectStorageError
@@ -55,6 +56,21 @@ def delete_document_version(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except ObjectStorageError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.detail)
+
+
+@router.get("/{document_id}/versions/{version_id}/download")
+def download_document_version(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    try:
+        return get_document_version_download_handler(db, document_id, version_id, user)
+    except (NotFoundError, ForbiddenError) as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    except ConflictError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
 @router.post("/register/init", response_model=RegisterDocumentResponse)

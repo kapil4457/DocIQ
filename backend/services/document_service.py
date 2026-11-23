@@ -7,12 +7,12 @@ from sqlalchemy.orm import Session
 from database.models.document import Document, Scope as DocumentScope
 from database.models.document_version import DocumentVersion, DocumentVersionStatus
 from database.models.user import User, UserRole
-from database.models.workspace import WorkspaceMember
+from database.models.workspace import Workspace, WorkspaceMember
 from dto.request.create_document import RegisterDocumentRequest
 from dto.request.complete_upload import CompleteUploadRequest
 from dto.response.create_document import RegisterDocumentResponse
 from dto.response.complete_upload import CompleteUploadResponse
-from utils.object_storage import start_upload, finish_upload, abort_upload, delete_object
+from utils.object_storage import start_upload, finish_upload, abort_upload, delete_object, download_url
 from utils.exception_handler import ObjectStorageError, ForbiddenError, NotFoundError
 from services.shared import (
     log_event,
@@ -28,7 +28,23 @@ from services.shared import (
 logger = logging.getLogger("app.services.document")
 
 
-def _authorize_upload(db: Session, current_user, scope: str, organization_id: uuid.UUID, workspace_id) -> None:
+def _resolve_upload_context(db: Session, request: RegisterDocumentRequest, current_user):
+    """Resolve the workspace and organization the upload belongs to, from server-side
+    state rather than trusting the client: workspace-scoped uploads derive the org
+    from the workspace, global uploads from the uploader's own organization."""
+    if request.workspaceId is None:
+        forbid(
+            request.scope == DocumentScope.WORKSPACE,
+            "workspaceId is required for workspace-scoped documents",
+        )
+        return None, current_user.organizationId
+
+    workspace = db.get(Workspace, request.workspaceId)
+    not_found(workspace is None, "Workspace not found", logger, workspaceId=str(request.workspaceId))
+    return workspace, workspace.organizationId
+
+
+def _authorize_upload(db: Session, current_user, scope: str, organization_id: uuid.UUID, workspace) -> None:
     assert_super_admin_cannot_upload(current_user)
     forbid(
         scope == "global" and current_user.role != UserRole.ORG_ADMIN,
@@ -39,19 +55,9 @@ def _authorize_upload(db: Session, current_user, scope: str, organization_id: uu
     )
     assert_can_manage_organization_docs(current_user, organization_id)
     if scope == "workspace":
-        from database.models.workspace import Workspace, WorkspaceMember
-        from sqlalchemy import select, func
+        from sqlalchemy import select
 
-        forbid(workspace_id is None, "workspaceId is required for workspace-scoped documents")
-        workspace = db.get(Workspace, workspace_id)
-        not_found(workspace is None, "Workspace not found", logger, workspaceId=str(workspace_id))
-        forbid(
-            workspace.organizationId != organization_id or workspace.organizationId != current_user.organizationId,
-            "Workspace does not belong to your organization",
-            logger,
-            userId=str(current_user.id),
-            workspaceId=str(workspace_id),
-        )
+        forbid(workspace is None, "workspaceId is required for workspace-scoped documents")
         is_member = db.scalar(
             select(func.count()).select_from(WorkspaceMember).where(
                 WorkspaceMember.workspaceId == workspace.id,
@@ -61,13 +67,15 @@ def _authorize_upload(db: Session, current_user, scope: str, organization_id: uu
         forbid(not is_member, "You are not a member of this workspace", logger, userId=str(current_user.id))
 
 
-def _get_or_create_document(db: Session, request: RegisterDocumentRequest) -> Document:
+def _get_or_create_document(db: Session, request: RegisterDocumentRequest, organization_id: uuid.UUID, current_user) -> Document:
     if request.documentId is None:
         document = Document(
             workspaceId=request.workspaceId,
             scope=request.scope,
-            organizationId=request.organizationId,
+            organizationId=organization_id,
             document_name=request.documentName,
+            createdBy=current_user.id,
+            modifiedBy=current_user.id,
         )
         db.add(document)
         db.flush()
@@ -81,7 +89,7 @@ def _get_or_create_document(db: Session, request: RegisterDocumentRequest) -> Do
         logger,
         f"No document exists with document_id {request.documentId}",
     )
-    if document.workspaceId != request.workspaceId or document.organizationId != request.organizationId:
+    if document.workspaceId != request.workspaceId or document.organizationId != organization_id:
         not_found(
             True,
             "Document does not belong to this workspace",
@@ -114,12 +122,13 @@ def _create_pending_version(db: Session, document: Document, request: RegisterDo
 
 
 def register_document_handler(db: Session, request: RegisterDocumentRequest, current_user) -> RegisterDocumentResponse:
-    _authorize_upload(db, current_user, request.scope, request.organizationId, request.workspaceId)
+    workspace, organization_id = _resolve_upload_context(db, request, current_user)
+    _authorize_upload(db, current_user, request.scope, organization_id, workspace)
     log_event(
         logger,
         "Registering document",
         documentId=request.documentId,
-        organizationId=request.organizationId,
+        organizationId=organization_id,
         workspaceId=request.workspaceId,
         documentName=request.documentName,
         mediaType=request.mediaType.value,
@@ -128,7 +137,7 @@ def register_document_handler(db: Session, request: RegisterDocumentRequest, cur
     )
 
     try:
-        document = _get_or_create_document(db, request)
+        document = _get_or_create_document(db, request, organization_id, current_user)
         document_version = _create_pending_version(db, document, request, current_user)
 
         try:
@@ -214,7 +223,10 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
     document = get_or_404(
         db, Document, document_version.documentId, logger, "Parent document not found",
     )
-    _authorize_upload(db, current_user, document.scope.value, document.organizationId, document.workspaceId)
+    workspace_obj = None
+    if document.scope == DocumentScope.WORKSPACE and document.workspaceId is not None:
+        workspace_obj = db.get(Workspace, document.workspaceId)
+    _authorize_upload(db, current_user, document.scope.value, document.organizationId, workspace_obj)
 
     uploaded_parts = [{"PartNumber": part.partNumber, "ETag": part.etag} for part in request.parts]
 
@@ -243,7 +255,8 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
 
     document_version.status = DocumentVersionStatus.AVAILABLE
     document_version.source_url = result["finalUrl"]
-    document_version.hash = result["etag"]
+    stored_hash = request.hash if request.hash else result["etag"]
+    document_version.hash = stored_hash
     db.commit()
     db.refresh(document_version)
 
@@ -253,7 +266,8 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
         documentId=document.id,
         versionId=version_id,
         fileSize=result["fileSize"],
-        etag=result["etag"],
+        hashType="sha256" if request.hash else "etag",
+        hash=stored_hash,
     )
 
     response = CompleteUploadResponse(
@@ -263,6 +277,7 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
         sourceUrl=document_version.source_url,
         fileSize=result["fileSize"],
         etag=result["etag"],
+        hash=stored_hash,
         workspaceId=document.workspaceId,
         organizationId=document.organizationId,
         documentName=document.document_name,
@@ -492,3 +507,51 @@ def delete_document_version_handler(
         deletedBy=str(current_user.id),
     )
     return {"message": "Version deleted successfully"}
+
+
+def get_document_version_download_handler(
+    db: Session, document_id: uuid.UUID, version_id: uuid.UUID, current_user
+) -> dict:
+    document = get_or_404(db, Document, document_id, logger, "Document not found")
+    forbid(
+        current_user.organizationId != document.organizationId,
+        "You do not have access to this document",
+        logger,
+        userId=str(current_user.id),
+    )
+
+    if document.scope == DocumentScope.WORKSPACE:
+        from database.models.workspace import Workspace as WorkspaceModel
+        from services.workspace_service import assert_workspace_access as _assert_ws_access
+
+        workspace = get_or_404(
+            db, WorkspaceModel, document.workspaceId, logger, "Parent workspace not found",
+        )
+        _assert_ws_access(db, workspace, current_user)
+
+    version = db.get(DocumentVersion, version_id)
+    if version is None or version.documentId != document_id:
+        raise NotFoundError("Version not found for this document")
+
+    conflict(
+        version.status != DocumentVersionStatus.AVAILABLE,
+        f"This version is {version.status.value} and cannot be downloaded",
+        logger,
+        versionId=version_id,
+        status=version.status.value,
+    )
+
+    filename = document.document_name
+    if document.scope == DocumentScope.WORKSPACE:
+        extension = version.mediaType.value
+        if not filename.lower().endswith(f".{extension}"):
+            filename = f"{filename}.{extension}"
+
+    url = download_url(version.objectKey, filename)
+    log_event(
+        logger, "Download URL issued",
+        documentId=document_id,
+        versionId=version_id,
+        userId=str(current_user.id),
+    )
+    return {"url": url, "filename": filename}

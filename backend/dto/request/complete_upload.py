@@ -10,3 +10,4 @@ class UploadedPart(BaseModel):
 class CompleteUploadRequest(BaseModel):
     uploadId: str = Field(..., min_length=1, description="Multipart upload id returned at registration")
     parts: list[UploadedPart] = Field(..., min_length=1, description="ETags for each uploaded part")
+    hash: str | None = Field(None, min_length=1, description="SHA-256 hex digest of the full file, computed by the uploading client")
