@@ -1,5 +1,6 @@
 import uuid
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from services.document_service import (
     register_document_handler,
     complete_upload_handler,
 )
+from utils.auth_dependencies import CurrentUser
 from utils.exception_handler import NotFoundError, ConflictError, ObjectStorageError
 
 logger = logging.getLogger("app.controllers.document")
@@ -21,14 +23,23 @@ router = APIRouter(prefix="/document", tags=["Document"])
 
 
 @router.post("/register/init", response_model=RegisterDocumentResponse)
-def register_document(request: RegisterDocumentRequest, db: Session = Depends(get_db)):
-    return register_document_handler(db, request)
+def register_document(
+    request: RegisterDocumentRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+):
+    return register_document_handler(db, request, user)
 
 
 @router.post("/register/{version_id}/complete", response_model=CompleteUploadResponse)
-def complete_document_upload(version_id: uuid.UUID, request: CompleteUploadRequest, db: Session = Depends(get_db)):
+def complete_document_upload(
+    version_id: uuid.UUID,
+    request: CompleteUploadRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+):
     try:
-        return complete_upload_handler(db, version_id, request)
+        return complete_upload_handler(db, version_id, request, user)
     except (NotFoundError, ConflictError) as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except ObjectStorageError as exc:

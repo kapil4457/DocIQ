@@ -18,6 +18,16 @@ class NotFoundError(AppError):
     default_detail = "Resource not found"
 
 
+class UnauthorizedError(AppError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    default_detail = "Authentication required"
+
+
+class ForbiddenError(AppError):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "Insufficient permissions"
+
+
 class ConflictError(AppError):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "Resource state conflict"

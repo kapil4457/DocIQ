@@ -28,7 +28,7 @@ class DocumentVersion(Base, AuditMixin):
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[DocumentVersionStatus] = mapped_column(
-        SAEnum(DocumentVersionStatus, name="document_version_status"),
+        SAEnum(DocumentVersionStatus, name="document_version_status", values_callable=lambda e: [m.value for m in e]),
         default=DocumentVersionStatus.PENDING,
         nullable=False,
     )
@@ -36,7 +36,10 @@ class DocumentVersion(Base, AuditMixin):
     uploadId: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fileSize: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    mediaType: Mapped[MediaType] = mapped_column(SAEnum(MediaType, name="media_type"), nullable=False)
+    mediaType: Mapped[MediaType] = mapped_column(
+        SAEnum(MediaType, name="media_type", values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+    )
     workspaceId: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
     )

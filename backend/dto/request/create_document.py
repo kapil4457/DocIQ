@@ -12,4 +12,3 @@ class RegisterDocumentRequest(BaseModel):
     documentName: str = Field(..., description="Original name of the source file", min_length=1)
     mediaType: MediaType = Field(..., description="Media type of the source file")
     fileSize: int = Field(..., gt=0, description="Size of the file in bytes")
-    createdBy: UUID = Field(..., description="User uploading the document")

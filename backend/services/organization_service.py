@@ -1,61 +1,68 @@
-import uuid
-from dto.request.create_organization import CreateOrganizationRequest
-from dto.request.update_organization import UpdateOrganizationRequest
-from dto.response.create_organization import CreateOrganizationResponse
-from database.models.organization import Organization
+import logging
+
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
-from dto.response.get_organizations import GetAllOrganizationResponse, Organization as OrganizationResponse
-from database.models.organization import Organization as OrganizationModel
-from dto.response.delete_response import DeleteResponse
-from sqlalchemy import select
+
+from database.models.organization import Organization
+from database.models.user import User
+from dto.request.create_organization import CreateOrganizationRequest
+from dto.response.create_organization import CreateOrganizationResponse
+from utils.exception_handler import ConflictError
+from services.shared import log_event, conflict, paginate
+
+logger = logging.getLogger("app.services.organization")
 
 
-def create_organization_handler(db: Session, request: CreateOrganizationRequest)-> CreateOrganizationResponse:
-    organization: Organization = Organization(**request.model_dump())    
+def create_organization_handler(db: Session, request: CreateOrganizationRequest) -> CreateOrganizationResponse:
+    conflict(
+        db.scalar(select(Organization).where(Organization.name == request.name)) is not None,
+        f"An organization named '{request.name}' already exists",
+        logger,
+        name=request.name,
+    )
 
+    organization = Organization(**request.model_dump())
     db.add(organization)
     db.commit()
     db.refresh(organization)
+    log_event(logger, "Organization created", organizationId=organization.id)
 
     response = CreateOrganizationResponse.model_validate(organization)
     response.message = "Organization created successfully"
     return response
 
 
-def get_all_organization_handler(db: Session) -> GetAllOrganizationResponse:
-    organizations = db.scalars(select(OrganizationModel)).all()
+def get_all_organizations_handler(db: Session, page: int, page_size: int) -> dict:
+    result = paginate(
+        db,
+        select(Organization).order_by(Organization.createdAt.desc()),
+        select(func.count()).select_from(Organization),
+        page,
+        page_size,
+    )
 
-    response = GetAllOrganizationResponse(organizations=organizations)
-    response.message = "Organizations fetched successfully"
-    return response
+    member_counts = {
+        org_id: count
+        for org_id, count in db.execute(
+            select(User.organizationId, func.count())
+            .where(User.organizationId.isnot(None))
+            .group_by(User.organizationId)
+        ).all()
+    }
 
-
-def get_organization_handler(db: Session, organization_id: uuid.UUID) -> OrganizationResponse:
-    organization = db.get(OrganizationModel, organization_id)
-    if organization is None:
-        raise ValueError("Organization not found")
-    response = OrganizationResponse.model_validate(organization)
-    response.message = "Organization fetched successfully"
-    return response
-
-
-def update_organization_handler(db: Session, organization_id: uuid.UUID, request: UpdateOrganizationRequest) -> OrganizationResponse:
-    organization = db.get(OrganizationModel, organization_id)
-    if organization is None:
-        raise ValueError("Organization not found")
-    for field, value in request.model_dump(exclude_unset=True).items():
-        setattr(organization, field, value)
-    db.commit()
-    db.refresh(organization)
-    response = OrganizationResponse.model_validate(organization)
-    response.message = "Organization updated successfully"
-    return response
-
-
-def delete_organization_handler(db: Session, organization_id: uuid.UUID) -> DeleteResponse:
-    organization = db.get(OrganizationModel, organization_id)
-    if organization is None:
-        raise ValueError("Organization not found")
-    db.delete(organization)
-    db.commit()
-    return DeleteResponse(message="Organization deleted successfully")
+    return {
+        "organizations": [
+            {
+                "id": org.id,
+                "name": org.name,
+                "supportEmail": org.supportEmail,
+                "memberCount": member_counts.get(org.id, 0),
+                "message": "",
+                "code": 200,
+            }
+            for org in result["items"]
+        ],
+        "total": result["total"],
+        "page": result["page"],
+        "pageSize": result["pageSize"],
+    }

@@ -22,4 +22,7 @@ class User(Base):
     organizationId: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
     )
-    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole, name="user_role"), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(UserRole, name="user_role", values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+    )

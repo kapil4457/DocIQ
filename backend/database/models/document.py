@@ -18,7 +18,10 @@ class Document(Base):
     workspaceId: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
     )
-    scope: Mapped[Scope] = mapped_column(SAEnum(Scope, name="document_scope"), nullable=False)
+    scope: Mapped[Scope] = mapped_column(
+        SAEnum(Scope, name="document_scope", values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+    )
     organizationId: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
