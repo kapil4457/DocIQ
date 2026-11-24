@@ -25,8 +25,8 @@ def init_db() -> None:
         ))
         for status_value in ("uploaded", "processing", "ingesting"):
             conn.execute(text(
-                "ALTER TYPE document_version_status ADD VALUE IF NOT EXISTS :value"
-            ), {"value": status_value})
+                f"ALTER TYPE document_version_status ADD VALUE IF NOT EXISTS '{status_value}'"
+            ))
 
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()

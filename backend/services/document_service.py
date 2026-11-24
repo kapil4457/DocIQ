@@ -1,5 +1,6 @@
 ﻿import uuid
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from dto.request.complete_upload import CompleteUploadRequest
 from dto.response.create_document import RegisterDocumentResponse
 from dto.response.complete_upload import CompleteUploadResponse
 from utils.object_storage import start_upload, finish_upload, abort_upload, delete_object, download_url, resume_part_urls, head_object_etag
+from events import create_event_publisher, DocumentReadyEvent
 from utils.exception_handler import ObjectStorageError, ForbiddenError, NotFoundError
 from services.shared import (
     log_event,
@@ -380,6 +382,29 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
         hashType="sha256" if request.hash else "etag",
         hash=stored_hash,
     )
+
+    try:
+        publisher = create_event_publisher()
+        publisher.publish_document_ready(
+            DocumentReadyEvent(
+                document_version_id=str(document_version.versionId),
+                user_id=str(current_user.id),
+                document_id=str(document.id),
+                organization_id=str(document.organizationId),
+                workspace_id=str(document.workspaceId) if document.workspaceId else None,
+                object_key=document_version.objectKey,
+                file_size=document_version.fileSize,
+                media_type=document_version.mediaType.value,
+                sha256_hash=document_version.hash,
+                published_at=datetime.now(timezone.utc).isoformat(),
+            )
+        )
+    except Exception:
+        logger.warning(
+            "Failed to publish document ready event (non-blocking)",
+            extra={"extra_data": {"documentVersionId": str(document_version.versionId)}},
+            exc_info=True,
+        )
 
     return _build_complete_response(document, document_version, result["fileSize"], result["etag"], stored_hash)
 
