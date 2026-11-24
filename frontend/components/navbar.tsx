@@ -11,6 +11,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogClose } fro
 import { useAuth, setUser, canUploadDocuments, type AuthUser } from "@/lib/auth";
 import { uploadDocument, createUploadKeyTracker, mediaTypeFor } from "@/lib/upload";
 import { apiFetch } from "@/lib/api";
+import { useToastHelpers } from "@/components/ui/toast";
 
 export function Navbar() {
   const user = useAuth();
@@ -155,6 +156,7 @@ function UploadButton({
   const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string }[]>([]);
   const [versionOf, setVersionOf] = useState<string>("new");
   const keyTracker = useRef(createUploadKeyTracker());
+  const { success, error: toastError } = useToastHelpers();
 
   useEffect(() => {
     if (!open) return;
@@ -176,6 +178,7 @@ function UploadButton({
     if (!file) return;
     if (file.size > MAX_FILE_SIZE) {
       setError(`File size exceeds maximum allowed limit of ${MAX_FILE_SIZE / (1024 * 1024)} MB`);
+      toastError("Upload failed", `File size exceeds maximum allowed limit of ${MAX_FILE_SIZE / (1024 * 1024)} MB`);
       return;
     }
     setUploading(true);
@@ -196,8 +199,11 @@ function UploadButton({
       setFile(null);
       setCustomName("");
       keyTracker.current.reset();
+      success("Upload complete", "Document uploaded successfully");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      setError(msg);
+      toastError("Upload failed", msg);
     } finally {
       setUploading(false);
     }

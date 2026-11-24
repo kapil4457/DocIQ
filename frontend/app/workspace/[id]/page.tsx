@@ -3,6 +3,7 @@
 import { use, Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { uploadDocument, createUploadKeyTracker, mediaTypeFor } from "@/lib/upload";
+import { useToastHelpers } from "@/components/ui/toast";
 import {
   SendHorizontal,
   ArrowLeft,
@@ -629,6 +630,7 @@ function UploadDialog({
   const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string }[]>([]);
   const [versionOf, setVersionOf] = useState<string>("new");
   const keyTracker = useRef(createUploadKeyTracker());
+  const { success, error: toastError } = useToastHelpers();
 
   useEffect(() => {
     if (!open) return;
@@ -648,6 +650,7 @@ function UploadDialog({
     if (!file) return;
     if (file.size > MAX_FILE_SIZE) {
       setError(`File size exceeds maximum allowed limit of ${MAX_FILE_SIZE / (1024 * 1024)} MB`);
+      toastError("Upload failed", `File size exceeds maximum allowed limit of ${MAX_FILE_SIZE / (1024 * 1024)} MB`);
       return;
     }
     setUploading(true);
@@ -671,8 +674,11 @@ function UploadDialog({
       setFile(null);
       setCustomName("");
       keyTracker.current.reset();
+      success("Upload complete", "Document uploaded successfully");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      setError(msg);
+      toastError("Upload failed", msg);
     } finally {
       setUploading(false);
     }
