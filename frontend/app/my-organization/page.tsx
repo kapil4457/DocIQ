@@ -106,7 +106,7 @@ export default function MyOrganizationPage() {
             Add members, promote admins, and manage access for your organization.
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
+        <Button onClick={() => setAddOpen(true)} className="cursor-pointer">
           <UserPlus className="size-4" />
           Add user
         </Button>
@@ -120,7 +120,7 @@ export default function MyOrganizationPage() {
         ) : error ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <p className="text-sm text-zinc-500 dark:text-zinc-400">{error}</p>
-            <Button variant="outline" size="sm" onClick={() => load(page)}>Try again</Button>
+            <Button variant="outline" size="sm" onClick={() => load(page)} className="cursor-pointer">Try again</Button>
           </div>
         ) : !data || data.users.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-16 text-center">
@@ -155,16 +155,16 @@ export default function MyOrganizationPage() {
                   </Badge>
                   {!isSelf && !isOrgSuperAdminRow && (
                     <>
-                      <Button variant="ghost" size="sm" onClick={() => toggleRole(u)} title="Toggle between participant and org admin">
+                      <Button variant="ghost" size="sm" onClick={() => toggleRole(u)} title="Toggle between participant and org admin" className="cursor-pointer">
                         {u.role === "org_admin" ? "Demote" : "Promote"}
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setResetUser(u)} title="Reset password">
+                      <Button variant="ghost" size="sm" onClick={() => setResetUser(u)} title="Reset password" className="cursor-pointer">
                         <KeyRound className="size-4 text-zinc-400" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-8 text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+                        className="size-8 text-zinc-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer"
                         aria-label={`Remove ${u.name}`}
                         onClick={() => removeUser(u)}
                       >
@@ -181,14 +181,14 @@ export default function MyOrganizationPage() {
           <div className="flex items-center justify-between border-t border-zinc-200/70 px-4 py-3 dark:border-zinc-800/70">
             <p className="text-sm text-zinc-500 dark:text-zinc-400">{data.total} members</p>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)} className="cursor-pointer disabled:cursor-not-allowed">
                 <ChevronLeft className="size-4" />
                 Prev
               </Button>
               <span className="px-2 text-sm tabular-nums text-zinc-600 dark:text-zinc-300">
                 {page} of {totalPages}
               </span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="cursor-pointer disabled:cursor-not-allowed">
                 Next
                 <ChevronRight className="size-4" />
               </Button>
@@ -227,7 +227,7 @@ export default function MyOrganizationPage() {
                   <p className="mt-0.5 flex items-center gap-2 font-mono text-sm font-medium">
                     {creds.temporaryPassword}
                     <button
-                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
                       aria-label="Copy password"
                       onClick={async () => {
                         try { await navigator.clipboard.writeText(creds.temporaryPassword); } catch {}
@@ -238,7 +238,7 @@ export default function MyOrganizationPage() {
                   </p>
                 </div>
                 <div className="flex justify-end">
-                  <Button onClick={() => { setResetUser(null); setCreds(null); }}>Done</Button>
+                  <Button onClick={() => { setResetUser(null); setCreds(null); }} className="cursor-pointer">Done</Button>
                 </div>
               </div>
             ) : (
@@ -247,7 +247,7 @@ export default function MyOrganizationPage() {
                   This replaces the existing password. There is no undo.
                 </p>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setResetUser(null)}>Cancel</Button>
+                  <Button variant="outline" onClick={() => setResetUser(null)} className="cursor-pointer">Cancel</Button>
                   <Button
                     onClick={async () => {
                       try {
@@ -258,6 +258,7 @@ export default function MyOrganizationPage() {
                         setCreds(res);
                       } catch {}
                     }}
+                    className="cursor-pointer"
                   >
                     Reset credentials
                   </Button>
@@ -344,7 +345,7 @@ function AddUserDialog({
                 key={r}
                 type="button"
                 onClick={() => setRole(r)}
-                className={`rounded-lg border px-3 py-2 text-sm capitalize transition-colors ${
+                className={`rounded-lg border px-3 py-2 text-sm capitalize transition-colors cursor-pointer ${
                   role === r
                     ? "border-zinc-950 bg-zinc-950 text-zinc-50 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
                     : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
@@ -359,8 +360,8 @@ function AddUserDialog({
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>
         )}
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={!name.trim() || !email.trim() || password.length < 8 || submitting}>
+          <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
+          <Button onClick={submit} disabled={!name.trim() || !email.trim() || password.length < 8 || submitting} className="cursor-pointer disabled:cursor-not-allowed">
             {submitting && <Loader2 className="size-4 animate-spin" />}
             {submitting ? "Creating…" : "Create user"}
           </Button>

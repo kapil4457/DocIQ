@@ -32,7 +32,7 @@ export function Navbar() {
           {canUploadDocuments(user) && <UploadButton open={uploadOpen} onOpenChange={setUploadOpen} />}
           {user?.role === "super_admin" && (
             <Link href="/manage-organizations">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="cursor-pointer">
                 <Building2 className="size-4" />
                 Manage Organizations
               </Button>
@@ -40,7 +40,7 @@ export function Navbar() {
           )}
           {user?.role === "org_super_admin" && (
             <Link href="/my-organization">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="cursor-pointer">
                 <Users className="size-4" />
                 My Organization
               </Button>
@@ -48,7 +48,7 @@ export function Navbar() {
           )}
           {(user?.role === "org_admin" || user?.role === "org_super_admin" || user?.role === "participant") && (
             <Link href="/global-documents">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="cursor-pointer">
                 <FileText className="size-4" />
                 Global Documents
               </Button>
@@ -65,7 +65,7 @@ function AuthButtons() {
   return (
     <div className="flex items-center gap-2">
       <Link href="/login">
-        <Button size="sm">
+        <Button size="sm" className="cursor-pointer">
           <LogIn className="size-4" />
           Log in
         </Button>
@@ -93,7 +93,7 @@ function AccountButton({
 
   return (
     <div className="relative">
-      <Button variant="ghost" size="sm" onClick={() => onOpenChange(!open)} aria-expanded={open}>
+      <Button variant="ghost" size="sm" onClick={() => onOpenChange(!open)} aria-expanded={open} className="cursor-pointer">
         <span className="flex size-6 items-center justify-center rounded-full bg-zinc-950 text-[10px] font-semibold text-zinc-50 dark:bg-zinc-100 dark:text-zinc-950">
           {initials}
         </span>
@@ -118,7 +118,7 @@ function AccountButton({
                 onOpenChange(false);
                 router.push("/login");
               }}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
             >
               <LogOut className="size-4" />
               Log out
@@ -133,7 +133,7 @@ function AccountButton({
 function WorkspacesButton() {
   return (
     <Link href="/workspaces">
-      <Button variant="ghost" size="sm">
+      <Button variant="ghost" size="sm" className="cursor-pointer">
         <FolderOpen className="size-4" />
         Workspaces
       </Button>
@@ -271,10 +271,10 @@ function UploadButton({
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>
           )}
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="cursor-pointer">
               Cancel
             </Button>
-            <Button onClick={handleUpload} disabled={!file || uploading}>
+            <Button onClick={handleUpload} disabled={!file || uploading} className="cursor-pointer disabled:cursor-not-allowed">
               {uploading && <Loader2 className="size-4 animate-spin" />}
               {uploading ? "Uploading…" : "Upload"}
             </Button>

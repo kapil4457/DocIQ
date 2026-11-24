@@ -344,7 +344,7 @@ function GlobalUploadDialog({
             id="global-doc-version"
             value={versionOf}
             onChange={(e) => setVersionOf(e.target.value)}
-            className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50"
+            className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50 cursor-pointer"
           >
             <option value="new">New document</option>
             {existingDocs.map((d) => (
@@ -490,7 +490,7 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
             ) : (
               docs.map((doc) => (
                 <React.Fragment key={doc.documentId}>
-                  <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50 transition-colors">
+                  <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-950/5 text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
@@ -509,7 +509,7 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                          className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer"
                           onClick={() => setExpandedId(expandedId === doc.documentId ? null : doc.documentId)}
                         >
                           {doc.versionCount} version{doc.versionCount !== 1 ? "s" : ""}
@@ -526,7 +526,7 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-7 text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+                            className="size-7 text-zinc-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer"
                             onClick={() => setConfirmDocId(doc.documentId)}
                             aria-label={`Delete ${doc.name}`}
                           >

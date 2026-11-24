@@ -70,7 +70,7 @@ export default function HomePage() {
                 </CardHeader>
                 <CardContent>
                   <a href="/manage-organizations">
-                    <Button className="w-full">
+                    <Button className="w-full cursor-pointer">
                       <Building2 className="size-4" />
                       Manage Organizations
                     </Button>
@@ -94,7 +94,7 @@ export default function HomePage() {
                       onKeyDown={(e) => e.key === "Enter" && createWorkspace()}
                       disabled={!user || creating}
                     />
-                    <Button onClick={createWorkspace} disabled={!user || !workspaceName.trim() || creating}>
+                    <Button onClick={createWorkspace} disabled={!user || !workspaceName.trim() || creating} className="cursor-pointer disabled:cursor-not-allowed">
                       {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
                       Create
                     </Button>
@@ -106,7 +106,7 @@ export default function HomePage() {
                   )}
                   {!user && (
                     <p className="mt-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                      Accounts are created by your organization&apos;s administrator.{" "}
+                      Accounts are created by your organization&apos;s administrator.<br />
                       <a href="/login" className="font-medium text-zinc-950 underline underline-offset-4 dark:text-zinc-50">
                         Log in
                       </a>

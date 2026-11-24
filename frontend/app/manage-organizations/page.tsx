@@ -89,7 +89,7 @@ export default function ManageOrganizationsPage() {
             Create organizations. Each one gets an organization super admin whose credentials you can reset on request.
           </p>
         </div>
-        <Button onClick={() => setCreateOrgOpen(true)}>
+        <Button onClick={() => setCreateOrgOpen(true)} className="cursor-pointer">
           <Plus className="size-4" />
           New organization
         </Button>
@@ -113,7 +113,7 @@ export default function ManageOrganizationsPage() {
         ) : error ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <p className="text-sm text-zinc-500 dark:text-zinc-400">{error}</p>
-            <Button variant="outline" size="sm" onClick={() => load(page)}>Try again</Button>
+            <Button variant="outline" size="sm" onClick={() => load(page)} className="cursor-pointer">Try again</Button>
           </div>
         ) : (
           <Table
@@ -129,14 +129,14 @@ export default function ManageOrganizationsPage() {
               {data.total} {data.total === 1 ? "organization" : "organizations"}
             </p>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)} className="cursor-pointer disabled:cursor-not-allowed">
                 <ChevronLeft className="size-4" />
                 Prev
               </Button>
               <span className="px-2 text-sm tabular-nums text-zinc-600 dark:text-zinc-300">
                 {page} of {totalPages}
               </span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="cursor-pointer disabled:cursor-not-allowed">
                 Next
                 <ChevronRight className="size-4" />
               </Button>
@@ -238,6 +238,7 @@ function Table({
                 size="sm"
                 onClick={() => openMenu(org.id)}
                 aria-expanded={menuOrg === org.id}
+                className="cursor-pointer"
               >
                 Actions
                 <ChevronDown className="size-3.5" />
@@ -294,7 +295,7 @@ function OrgActionMenu({
               onClose();
               action();
             }}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
           >
             <Icon className="size-4 text-zinc-400" />
             {label}
@@ -324,7 +325,7 @@ function CredsReveal({ email, password }: { email: string; password: string }) {
           <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">Email</p>
           <p className="mt-0.5 break-all text-sm font-medium">{email}</p>
         </div>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Copy email" onClick={() => copy(email, "email")}>
+        <Button variant="ghost" size="icon" className="size-8 cursor-pointer" aria-label="Copy email" onClick={() => copy(email, "email")}>
           {copied === "email" ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4 text-zinc-400" />}
         </Button>
       </div>
@@ -333,7 +334,7 @@ function CredsReveal({ email, password }: { email: string; password: string }) {
           <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">Temporary password</p>
           <p className="mt-0.5 break-all font-mono text-sm font-medium">{password}</p>
         </div>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Copy password" onClick={() => copy(password, "pw")}>
+        <Button variant="ghost" size="icon" className="size-8 cursor-pointer" aria-label="Copy password" onClick={() => copy(password, "pw")}>
           {copied === "pw" ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4 text-zinc-400" />}
         </Button>
       </div>
@@ -435,8 +436,8 @@ function EditDialog({
               <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>
             )}
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={onClose}>Cancel</Button>
-              <Button onClick={submit} disabled={!name.trim() || !supportEmail.trim() || saving}>
+              <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
+              <Button onClick={submit} disabled={!name.trim() || !supportEmail.trim() || saving} className="cursor-pointer disabled:cursor-not-allowed">
                 {saving && <Loader2 className="size-4 animate-spin" />}
                 {saving ? "Saving…" : "Save changes"}
               </Button>
@@ -499,8 +500,8 @@ function ResetCredsDialog({ org, onClose }: { org: OrganizationRow | null; onClo
                 This replaces the existing password. There is no undo.
               </p>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={onClose}>Cancel</Button>
-                <Button onClick={reset} disabled={working}>
+                <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
+                <Button onClick={reset} disabled={working} className="cursor-pointer disabled:cursor-not-allowed">
                   {working && <Loader2 className="size-4 animate-spin" />}
                   {working ? "Resetting…" : "Reset credentials"}
                 </Button>
@@ -580,7 +581,7 @@ function CreateOrgDialog({
         <div className="space-y-4">
           <CredsReveal email={creds.email} password={creds.temporaryPassword} />
           <div className="flex justify-end">
-            <Button onClick={() => { onCreated(); onClose(); }}>Done</Button>
+            <Button onClick={() => { onCreated(); onClose(); }} className="cursor-pointer">Done</Button>
           </div>
         </div>
       ) : (
@@ -598,8 +599,8 @@ function CreateOrgDialog({
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>
           )}
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={submit} disabled={!name.trim() || !supportEmail.trim() || submitting}>
+            <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
+            <Button onClick={submit} disabled={!name.trim() || !supportEmail.trim() || submitting} className="cursor-pointer disabled:cursor-not-allowed">
               {submitting && <Loader2 className="size-4 animate-spin" />}
               {submitting ? "Creating…" : "Create organization"}
             </Button>

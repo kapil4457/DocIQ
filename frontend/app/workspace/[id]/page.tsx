@@ -338,7 +338,7 @@ function WorkspaceMenu({
             onClose();
             onShare();
           }}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
         >
           <Users className="size-4 text-zinc-400" />
           Members
@@ -350,7 +350,7 @@ function WorkspaceMenu({
                 onClose();
                 onRename();
               }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               <Pencil className="size-4 text-zinc-400" />
               Rename
@@ -360,7 +360,7 @@ function WorkspaceMenu({
                 onClose();
                 onDelete();
               }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
             >
               <Trash2 className="size-4" />
               Delete workspace
@@ -709,7 +709,7 @@ function UploadDialog({
             id="ws-doc-version"
             value={versionOf}
             onChange={(e) => setVersionOf(e.target.value)}
-            className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50"
+            className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50 cursor-pointer"
           >
             <option value="new">New document</option>
             {existingDocs.map((d) => (
@@ -732,8 +732,8 @@ function UploadDialog({
         )}
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={startUpload} disabled={!file || uploading}>
+          <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
+          <Button onClick={startUpload} disabled={!file || uploading} className="cursor-pointer disabled:cursor-not-allowed">
             {uploading && <Loader2 className="size-4 animate-spin" />}
             {uploading ? "Uploading…" : "Upload"}
           </Button>
@@ -1029,7 +1029,7 @@ function DocumentRow({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+              className="size-8 text-zinc-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer"
               aria-label={`Delete ${doc.name}`}
               onClick={onConfirmDocDelete}
             >
@@ -1094,7 +1094,7 @@ function DocumentRow({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-7 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                        className="size-7 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
                         aria-label="Download this version"
                         disabled={downloadingVersionId === v.versionId}
                         onClick={() => onDownloadVersion(v.versionId, doc.name)}
@@ -1106,17 +1106,17 @@ function DocumentRow({
                     )}
                     {confirmVersionId === v.versionId ? (
                       <span className="inline-flex items-center gap-1">
-                        <Button variant="destructive" size="sm" onClick={() => onDeleteVersion(v.versionId)} disabled={deleting}>
+                        <Button variant="destructive" size="sm" onClick={() => onDeleteVersion(v.versionId)} disabled={deleting} className="cursor-pointer disabled:cursor-not-allowed">
                           {deleting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                           Sure?
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={onCancelVersionDelete}>Cancel</Button>
+                        <Button variant="ghost" size="sm" onClick={onCancelVersionDelete} className="cursor-pointer">Cancel</Button>
                       </span>
                     ) : (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-7 text-zinc-300 hover:text-red-600 dark:text-zinc-600 dark:hover:text-red-400"
+                        className="size-7 text-zinc-300 hover:text-red-600 dark:text-zinc-600 dark:hover:text-red-400 cursor-pointer"
                         aria-label="Delete this version"
                         onClick={() => onConfirmVersionDelete(v.versionId)}
                       >

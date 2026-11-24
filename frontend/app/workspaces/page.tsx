@@ -72,7 +72,7 @@ export default function WorkspacesPage() {
           </p>
         </div>
         {user?.role !== "super_admin" && (
-          <Button onClick={() => router.push("/")}>
+          <Button onClick={() => router.push("/")} className="cursor-pointer">
             <Plus className="size-4" />
             New workspace
           </Button>
@@ -85,7 +85,7 @@ export default function WorkspacesPage() {
             icon={FolderOpen}
             title="Log in to view workspaces"
             body="Your conversation history lives here once you have an account."
-            action={<Button onClick={() => router.push("/login")}>Log in</Button>}
+            action={<Button onClick={() => router.push("/login")} className="cursor-pointer">Log in</Button>}
           />
         ) : loading ? (
           <div className="flex items-center justify-center py-24">
@@ -96,7 +96,7 @@ export default function WorkspacesPage() {
             icon={FolderOpen}
             title="Could not load workspaces"
             body={error}
-            action={<Button variant="outline" onClick={() => load(page)}>Try again</Button>}
+            action={<Button variant="outline" onClick={() => load(page)} className="cursor-pointer">Try again</Button>}
           />
         ) : !data || data.workspaces.length === 0 ? (
           <EmptyState
@@ -104,7 +104,7 @@ export default function WorkspacesPage() {
             title="No workspaces yet"
             body="Create your first workspace from the home page to start a conversation."
             action={
-              <Button onClick={() => router.push("/")}>
+              <Button onClick={() => router.push("/")} className="cursor-pointer">
                 <Plus className="size-4" />
                 Create workspace
               </Button>
@@ -120,7 +120,7 @@ export default function WorkspacesPage() {
                 >
                   <button
                     onClick={() => router.push(`/workspace/${ws.id}`)}
-                    className="group flex h-full w-full flex-col gap-3 rounded-2xl border border-zinc-200/70 bg-white/60 p-4 text-left backdrop-blur-sm transition-all duration-300 hover:border-zinc-300 hover:bg-white hover:shadow-md hover:shadow-zinc-950/5 hover:-translate-y-0.5 dark:border-zinc-800/70 dark:bg-zinc-900/50 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:shadow-black/30"
+                    className="group flex h-full w-full cursor-pointer flex-col gap-3 rounded-2xl border border-zinc-200/70 bg-white/60 p-4 text-left backdrop-blur-sm transition-all duration-300 hover:border-zinc-300 hover:bg-white hover:shadow-md hover:shadow-zinc-950/5 hover:-translate-y-0.5 dark:border-zinc-800/70 dark:bg-zinc-900/50 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:shadow-black/30"
                   >
                     <span className="flex size-10 items-center justify-center rounded-xl bg-zinc-950/5 text-zinc-600 transition-colors group-hover:bg-zinc-950 group-hover:text-zinc-50 dark:bg-white/10 dark:text-zinc-300 dark:group-hover:bg-zinc-100 dark:group-hover:text-zinc-950">
                       <MessageSquare className="size-5" />
@@ -167,14 +167,14 @@ function Pagination({
         {total} {total === 1 ? "workspace" : "workspaces"}
       </p>
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="cursor-pointer disabled:cursor-not-allowed">
           <ChevronLeft className="size-4" />
           Prev
         </Button>
         <span className="px-2 text-sm text-zinc-600 tabular-nums dark:text-zinc-300">
           {page} of {totalPages}
         </span>
-        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} className="cursor-pointer disabled:cursor-not-allowed">
           Next
           <ChevronRight className="size-4" />
         </Button>
