@@ -424,7 +424,7 @@ def delete_document_handler(db: Session, document_id: uuid.UUID, current_user) -
 
     if document.scope == DocumentScope.GLOBAL:
         forbid(
-            current_user.role not in (UserRole.ORG_ADMIN, UserRole.ORG_SUPER_ADMIN),
+            current_user.role != UserRole.ORG_ADMIN,
             "Only organization admins can delete global documents",
             logger,
             userId=str(current_user.id),
@@ -528,18 +528,98 @@ def get_workspace_documents_handler(
             (v.versionId for v, _ in versions if v.status == DocumentVersionStatus.AVAILABLE.value),
             None,
         )
-        if active_version_id is None:
-            active_version_id = next(
-                (v.versionId for v, _ in versions if v.status == DocumentVersionStatus.UPLOADED.value),
-                None,
-            )
+        version_list = [
+            {
+                "versionId": v.versionId,
+                "status": v.status.value if isinstance(v.status, DocumentVersionStatus) else v.status,
+                "isActive": v.versionId == active_version_id,
+                "uploadedByName": uploader_name,
+                "fileSize": v.fileSize,
+                "createdAt": v.createdAt,
+            }
+            for v, uploader_name in versions
+        ]
         rows.append({
             "documentId": doc.id,
             "name": doc.document_name,
             "uploadedByName": uploader_names.get(doc.createdBy),
             "createdAt": doc.createdAt,
             "versionCount": len(versions),
-            "versions": [
+            "versions": version_list,
+        })
+
+    return {
+        "documents": rows,
+        "total": result["total"],
+        "page": result["page"],
+        "pageSize": page_size,
+    }
+
+
+def get_organization_documents_handler(
+    db: Session, organization_id: uuid.UUID, current_user, page: int, page_size: int
+) -> dict:
+    """List global documents for an organization.
+    org_admin/org_super_admin: full version trails + upload
+    org_participant/org_super_admin: latest available version only (read-only)"""
+    forbid(
+        current_user.organizationId != organization_id,
+        "You can only access documents in your own organization",
+        logger,
+        userId=str(current_user.id),
+    )
+    is_admin = current_user.role in (UserRole.ORG_ADMIN, UserRole.ORG_SUPER_ADMIN)
+    is_viewer = current_user.role in (UserRole.PARTICIPANT, UserRole.ORG_SUPER_ADMIN)
+    forbid(
+        not (is_admin or is_viewer),
+        "Not authorized to view global documents",
+        logger,
+        userId=str(current_user.id),
+        role=current_user.role.value,
+    )
+
+    # Viewers (participant, org_super_admin) only see latest available version
+    show_full_trail = is_admin
+
+    doc_scope = select(Document).where(
+        Document.organizationId == organization_id,
+        Document.scope == DocumentScope.GLOBAL,
+    )
+    doc_count = select(func.count()).select_from(Document).where(
+        Document.organizationId == organization_id,
+        Document.scope == DocumentScope.GLOBAL,
+    )
+    result = paginate(db, doc_scope.order_by(Document.createdAt.desc()), doc_count, page, page_size)
+    documents = result["items"]
+
+    doc_ids = [doc.id for doc in documents]
+    versions_by_doc: dict = {}
+    if doc_ids:
+        version_rows = db.execute(
+            select(DocumentVersion, User.name)
+            .outerjoin(User, User.id == DocumentVersion.createdBy)
+            .where(DocumentVersion.documentId.in_(doc_ids))
+            .order_by(DocumentVersion.createdAt.desc())
+        ).all()
+        for version, uploader_name in version_rows:
+            versions_by_doc.setdefault(version.documentId, []).append((version, uploader_name))
+
+    uploader_names = {
+        user_id: name
+        for user_id, name in db.execute(
+            select(User.id, User.name).where(User.id.in_([doc.createdBy for doc in documents] or [None]))
+        ).all()
+    } if documents else {}
+
+    rows = []
+    for doc in documents:
+        versions = versions_by_doc.get(doc.id, [])
+        active_version_id = next(
+            (v.versionId for v, _ in versions if v.status == DocumentVersionStatus.AVAILABLE.value),
+            None,
+        )
+        if show_full_trail:
+            version_list = [
                 {
                     "versionId": v.versionId,
                     "status": v.status.value if isinstance(v.status, DocumentVersionStatus) else v.status,
@@ -549,7 +629,34 @@ def get_workspace_documents_handler(
                     "createdAt": v.createdAt,
                 }
                 for v, uploader_name in versions
-            ],
+            ]
+        else:
+            # Only latest available version for viewers (participant, org_super_admin)
+            latest_available = next(
+                (v for v, _ in versions if v.status == DocumentVersionStatus.AVAILABLE.value),
+                None,
+            )
+            version_list = []
+            if latest_available:
+                uploader_name = next(
+                    (name for v, name in versions if v.versionId == latest_available.versionId),
+                    None,
+                )
+                version_list = [{
+                    "versionId": latest_available.versionId,
+                    "status": latest_available.status.value if isinstance(latest_available.status, DocumentVersionStatus) else latest_available.status,
+                    "isActive": True,
+                    "uploadedByName": uploader_name,
+                    "fileSize": latest_available.fileSize,
+                    "createdAt": latest_available.createdAt,
+                }]
+        rows.append({
+            "documentId": doc.id,
+            "name": doc.document_name,
+            "uploadedByName": uploader_names.get(doc.createdBy),
+            "createdAt": doc.createdAt,
+            "versionCount": len(versions),
+            "versions": version_list,
         })
 
     return {
@@ -584,7 +691,7 @@ def delete_document_version_handler(
         _assert_ws_access(db, workspace, current_user)
     else:
         forbid(
-            current_user.role not in (UserRole.ORG_ADMIN, UserRole.ORG_SUPER_ADMIN),
+            current_user.role != UserRole.ORG_ADMIN,
             "Only organization admins can delete global document versions",
             logger,
             userId=str(current_user.id),
@@ -658,6 +765,16 @@ def get_document_version_download_handler(
     version = db.get(DocumentVersion, version_id)
     if version is None or version.documentId != document_id:
         raise NotFoundError("Version not found for this document")
+
+    # Allow org_participant and org_super_admin to download global documents
+    if document.scope == DocumentScope.GLOBAL:
+        forbid(
+            current_user.role not in (UserRole.ORG_ADMIN, UserRole.ORG_SUPER_ADMIN, UserRole.PARTICIPANT),
+            "Not authorized to download this document",
+            logger,
+            userId=str(current_user.id),
+            role=current_user.role.value,
+        )
 
     conflict(
         version.status not in (DocumentVersionStatus.AVAILABLE, DocumentVersionStatus.UPLOADED),

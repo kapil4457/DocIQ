@@ -719,15 +719,17 @@ function UploadDialog({
             ))}
           </select>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ws-doc-name">Custom name</Label>
-          <Input
-            id="ws-doc-name"
-            placeholder={file ? file.name : "Name shown in the workspace"}
-            value={customName}
-            onChange={(e) => setCustomName(e.target.value)}
-          />
-        </div>
+        {versionOf === "new" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="ws-doc-name">Custom name</Label>
+            <Input
+              id="ws-doc-name"
+              placeholder={file ? file.name : "Name shown in the workspace"}
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+            />
+          </div>
+        )}
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -1064,16 +1066,24 @@ function DocumentRow({
                         <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">
                           {v.versionId.slice(0, 8)}
                         </span>
-                        {v.isActive && (
+                        {v.status === "available" && v.isActive && (
                           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-                            Active · used for answers
+                            Used for response generation
                           </span>
                         )}
-                        {v.status === "pending" && <span className="text-amber-600 dark:text-amber-400">uploading</span>}
-                        {v.status === "uploaded" && <span className="text-sky-600 dark:text-sky-400">uploaded</span>}
-                        {v.status === "processing" && <span className="text-violet-600 dark:text-violet-400">processing</span>}
-                        {v.status === "ingesting" && <span className="text-violet-600 dark:text-violet-400">ingesting</span>}
-                        {v.status === "aborted" && <span className="text-zinc-400">aborted</span>}
+                        <Badge className={(
+                          v.status === "available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300" :
+                          v.status === "uploaded" ? "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300" :
+                          v.status === "processing" || v.status === "ingesting" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300" :
+                          v.status === "pending" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" :
+                          "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"
+                        )}>
+                          {v.status === "available" ? "Ready" :
+                           v.status === "uploaded" ? "Uploaded" :
+                           v.status === "processing" ? "Processing" :
+                           v.status === "ingesting" ? "Ingesting" :
+                           v.status === "pending" ? "Uploading" : "Aborted"}
+                        </Badge>
                       </p>
                       <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                         {v.uploadedByName ?? "Unknown"} · {new Date(v.createdAt).toLocaleString()}

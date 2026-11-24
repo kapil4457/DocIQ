@@ -17,6 +17,7 @@ from services.document_service import (
     complete_upload_handler,
     delete_document_handler,
     get_workspace_documents_handler,
+    get_organization_documents_handler,
     delete_document_version_handler,
     get_document_version_download_handler,
 )
@@ -39,6 +40,20 @@ def get_workspace_documents(
     try:
         result = get_workspace_documents_handler(db, workspaceId, user, page, pageSize)
         return GetWorkspaceDocumentsResponse(**result, message="Documents fetched successfully")
+    except (NotFoundError, ForbiddenError) as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.get("/global", response_model=GetWorkspaceDocumentsResponse)
+def get_organization_documents(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(10, ge=1, le=100),
+):
+    try:
+        result = get_organization_documents_handler(db, user.organizationId, user, page, pageSize)
+        return GetWorkspaceDocumentsResponse(**result, message="Global documents fetched successfully")
     except (NotFoundError, ForbiddenError) as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 

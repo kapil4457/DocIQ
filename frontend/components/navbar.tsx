@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { useAuth, setUser, canUploadDocuments, type AuthUser } from "@/lib/auth";
 import { uploadDocument, createUploadKeyTracker, mediaTypeFor } from "@/lib/upload";
+import { apiFetch } from "@/lib/api";
 
 export function Navbar() {
   const user = useAuth();
@@ -45,6 +46,14 @@ export function Navbar() {
               <Button variant="ghost" size="sm">
                 <Users className="size-4" />
                 My Organization
+              </Button>
+            </Link>
+          )}
+          {(user?.role === "org_admin" || user?.role === "org_super_admin" || user?.role === "participant") && (
+            <Link href="/global-documents">
+              <Button variant="ghost" size="sm">
+                <FileText className="size-4" />
+                Global Documents
               </Button>
             </Link>
           )}
@@ -232,10 +241,22 @@ function UploadButton({
   const [customName, setCustomName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string }[]>([]);
+  const [versionOf, setVersionOf] = useState<string>("new");
   const keyTracker = useRef(createUploadKeyTracker());
 
   useEffect(() => {
-    if (open) setError(null);
+    if (!open) return;
+    setFile(null);
+    setCustomName("");
+    setError(null);
+    setVersionOf("new");
+    keyTracker.current.reset();
+    apiFetch<{ documents: { documentId: string; name: string }[] }>(
+      `/document/global?page=1&pageSize=100`
+    )
+      .then((res) => setExistingDocs(res.documents))
+      .catch(() => setExistingDocs([]));
   }, [open]);
 
   const handleUpload = async () => {
@@ -247,6 +268,7 @@ function UploadButton({
         file,
         {
           scope: "global",
+          documentId: versionOf === "new" ? null : versionOf,
           documentName: customName || file.name,
           mediaType: mediaTypeFor(file.name),
           fileSize: file.size,
@@ -308,14 +330,32 @@ function UploadButton({
             )}
           </label>
           <div className="space-y-1.5">
-            <Label htmlFor="doc-name">Custom name</Label>
-            <Input
-              id="doc-name"
-              placeholder={file ? file.name : "Name shown in the knowledge base"}
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-            />
+            <Label htmlFor="doc-version">Add as</Label>
+            <select
+              id="doc-version"
+              value={versionOf}
+              onChange={(e) => setVersionOf(e.target.value)}
+              className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50"
+            >
+              <option value="new">New document</option>
+              {existingDocs.map((d) => (
+                <option key={d.documentId} value={d.documentId}>
+                  New version of: {d.name}
+                </option>
+              ))}
+            </select>
           </div>
+          {versionOf === "new" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-name">Custom name</Label>
+              <Input
+                id="doc-name"
+                placeholder={file ? file.name : "Name shown in the knowledge base"}
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+              />
+            </div>
+          )}
           {error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">{error}</p>
           )}

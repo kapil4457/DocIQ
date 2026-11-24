@@ -72,5 +72,5 @@ export function useAuth() {
 }
 
 export function canUploadDocuments(user: AuthUser | null): boolean {
-  return user?.role === "org_admin";
+  return false;
 }
