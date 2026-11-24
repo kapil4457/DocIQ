@@ -1,0 +1,23 @@
+# Document Service Background Task
+# Independent background worker for document processing
+
+name: "document-service"
+version: "1.0.0"
+description: "Background worker for document processing - security checks, text extraction, chunking, embeddings"
+author: ""
+
+[tool.pip]
+# Core dependencies
+dependencies = [
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "PyMuPDF>=1.23",  # For PDF security checks
+    "pgvector>=0.2",   # For vector embeddings
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
