@@ -119,13 +119,35 @@ def download_url(object_key: str, filename: str) -> str:
     )
 
 
+def _presign_part_urls(object_key: str, upload_id: str, total_parts: int) -> list:
+    part_urls = []
+    for part_num in range(1, total_parts + 1):
+        url = s3_client.generate_presigned_url(
+            ClientMethod="upload_part",
+            Params={
+                "Bucket": BUCKET_NAME,
+                "Key": object_key,
+                "UploadId": upload_id,
+                "PartNumber": part_num,
+            },
+            ExpiresIn=PRESIGN_EXPIRY_SECONDS,
+        )
+        part_urls.append({"partNumber": part_num, "url": url})
+    return part_urls
+
+
+def _total_parts(file_size_bytes: int) -> int:
+    total = max(1, math.ceil(file_size_bytes / (CHUNK_SIZE * 1024 * 1024)))
+    if total > 10000:
+        raise ValueError(f"file_size_bytes requires {total} parts, exceeds R2 limit of 10000")
+    return total
+
+
 def start_upload(object_key: str, file_size_bytes: int) -> dict:
     if file_size_bytes <= 0:
         raise ValueError("file_size_bytes must be greater than zero")
 
-    total_parts = max(1, math.ceil(file_size_bytes / (CHUNK_SIZE * 1024 * 1024)))
-    if total_parts > 10000:
-        raise ValueError(f"file_size_bytes requires {total_parts} parts, exceeds R2 limit of 10000")
+    total_parts = _total_parts(file_size_bytes)
 
     try:
         multipart_upload = s3_client.create_multipart_upload(Bucket=BUCKET_NAME, Key=object_key)
@@ -143,20 +165,8 @@ def start_upload(object_key: str, file_size_bytes: int) -> dict:
         extra={"extra_data": {"objectKey": object_key, "uploadId": upload_id, "totalParts": total_parts}},
     )
 
-    part_urls = []
     try:
-        for part_num in range(1, total_parts + 1):
-            url = s3_client.generate_presigned_url(
-                ClientMethod="upload_part",
-                Params={
-                    "Bucket": BUCKET_NAME,
-                    "Key": object_key,
-                    "UploadId": upload_id,
-                    "PartNumber": part_num,
-                },
-                ExpiresIn=PRESIGN_EXPIRY_SECONDS,
-            )
-            part_urls.append({"partNumber": part_num, "url": url})
+        part_urls = _presign_part_urls(object_key, upload_id, total_parts)
     except ClientError:
         abort_upload(object_key, upload_id)
         logger.error(
@@ -172,6 +182,40 @@ def start_upload(object_key: str, file_size_bytes: int) -> dict:
         "chunkSize": CHUNK_SIZE,
         "partUrls": part_urls,
     }
+
+
+def resume_part_urls(object_key: str, upload_id: str, file_size_bytes: int) -> dict:
+    """Re-issue presigned part URLs for an existing multipart upload, without creating a new
+    one. Used to replay a register request with the same idempotency key; previously issued
+    URLs may have expired."""
+    if file_size_bytes <= 0:
+        raise ValueError("file_size_bytes must be greater than zero")
+
+    total_parts = _total_parts(file_size_bytes)
+    part_urls = _presign_part_urls(object_key, upload_id, total_parts)
+    logger.info(
+        "Presigned part URLs re-issued for existing multipart upload",
+        extra={"extra_data": {"objectKey": object_key, "uploadId": upload_id, "totalParts": total_parts}},
+    )
+    return {
+        "uploadId": upload_id,
+        "objectKey": object_key,
+        "chunkSize": CHUNK_SIZE,
+        "partUrls": part_urls,
+    }
+
+
+def head_object_etag(object_key: str) -> str | None:
+    try:
+        head = s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
+    except ClientError:
+        logger.warning(
+            "Object head failed",
+            extra={"extra_data": {"objectKey": object_key}},
+            exc_info=True,
+        )
+        return None
+    return head["ETag"].strip('"')
 
 
 def abort_upload(object_key: str, upload_id: str) -> None:

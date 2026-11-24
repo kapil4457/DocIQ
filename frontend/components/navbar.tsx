@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MessageSquare, FolderOpen, LogIn, Upload, LogOut, ChevronDown, FileText, Loader2, Building2, Users } from "lucide-react";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { useAuth, setUser, canUploadDocuments, type AuthUser } from "@/lib/auth";
+import { uploadDocument, createUploadKeyTracker, mediaTypeFor } from "@/lib/upload";
 
 export function Navbar() {
   const user = useAuth();
@@ -231,17 +232,33 @@ function UploadButton({
   const [customName, setCustomName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const keyTracker = useRef(createUploadKeyTracker());
+
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
 
   const handleUpload = async () => {
     if (!file) return;
     setUploading(true);
     setError(null);
     try {
-      // TODO: POST /document/register/init with scope "global", then PUT parts to presigned URLs
-      await new Promise((r) => setTimeout(r, 900));
+      await uploadDocument(
+        file,
+        {
+          scope: "global",
+          documentName: customName || file.name,
+          mediaType: mediaTypeFor(file.name),
+          fileSize: file.size,
+        },
+        keyTracker.current.keyFor(file),
+      );
       onOpenChange(false);
       setFile(null);
       setCustomName("");
+      keyTracker.current.reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
     }

@@ -12,7 +12,7 @@ from dto.request.create_document import RegisterDocumentRequest
 from dto.request.complete_upload import CompleteUploadRequest
 from dto.response.create_document import RegisterDocumentResponse
 from dto.response.complete_upload import CompleteUploadResponse
-from utils.object_storage import start_upload, finish_upload, abort_upload, delete_object, download_url
+from utils.object_storage import start_upload, finish_upload, abort_upload, delete_object, download_url, resume_part_urls, head_object_etag
 from utils.exception_handler import ObjectStorageError, ForbiddenError, NotFoundError
 from services.shared import (
     log_event,
@@ -121,9 +121,75 @@ def _create_pending_version(db: Session, document: Document, request: RegisterDo
     return document_version
 
 
-def register_document_handler(db: Session, request: RegisterDocumentRequest, current_user) -> RegisterDocumentResponse:
+def _replay_register(db: Session, request: RegisterDocumentRequest, current_user, idempotency_key: str) -> RegisterDocumentResponse | None:
+    existing = db.scalar(
+        select(DocumentVersion).where(DocumentVersion.idempotency_key == idempotency_key)
+    )
+    if existing is None:
+        return None
+
+    forbid(
+        existing.createdBy != current_user.id,
+        "Idempotency key already used by a different uploader",
+        logger,
+        idempotencyKey=idempotency_key,
+    )
+    if existing.status != DocumentVersionStatus.PENDING:
+        conflict(
+            True,
+            "Upload with this idempotency key already completed",
+            logger,
+            idempotencyKey=idempotency_key,
+            versionId=str(existing.versionId),
+            status=existing.status.value,
+        )
+    conflict(
+        existing.fileSize != request.fileSize,
+        "File size differs from the original attempt for this idempotency key",
+        logger,
+        idempotencyKey=idempotency_key,
+        expectedSize=existing.fileSize,
+        actualSize=request.fileSize,
+    )
+    document = get_or_404(db, Document, existing.documentId, logger, "Parent document not found")
+    conflict(
+        document.workspaceId != request.workspaceId,
+        "Workspace differs from the original attempt for this idempotency key",
+        logger,
+        idempotencyKey=idempotency_key,
+        documentId=str(document.id),
+    )
+
+    upload_info = resume_part_urls(existing.objectKey, existing.uploadId, existing.fileSize)
+    log_event(
+        logger,
+        "Register replayed for existing idempotency key",
+        documentId=document.id,
+        versionId=existing.versionId,
+        uploadId=existing.uploadId,
+    )
+    response = RegisterDocumentResponse(
+        documentId=document.id,
+        versionId=existing.versionId,
+        workspaceId=document.workspaceId,
+        scope=document.scope,
+        organizationId=document.organizationId,
+        documentName=document.document_name,
+        upload=upload_info,
+    )
+    response.message = "Document registered successfully"
+    return response
+
+
+def register_document_handler(db: Session, request: RegisterDocumentRequest, current_user, idempotency_key: str | None = None) -> RegisterDocumentResponse:
     workspace, organization_id = _resolve_upload_context(db, request, current_user)
     _authorize_upload(db, current_user, request.scope, organization_id, workspace)
+
+    if idempotency_key:
+        replay = _replay_register(db, request, current_user, idempotency_key)
+        if replay is not None:
+            return replay
+
     log_event(
         logger,
         "Registering document",
@@ -192,6 +258,25 @@ def register_document_handler(db: Session, request: RegisterDocumentRequest, cur
         raise
 
 
+def _build_complete_response(document, document_version, file_size: int, etag: str, stored_hash: str) -> CompleteUploadResponse:
+    response = CompleteUploadResponse(
+        documentId=document.id,
+        versionId=document_version.versionId,
+        status=document_version.status,
+        sourceUrl=document_version.source_url,
+        fileSize=file_size,
+        etag=etag,
+        hash=stored_hash,
+        workspaceId=document.workspaceId,
+        organizationId=document.organizationId,
+        documentName=document.document_name,
+        mediaType=document_version.mediaType.value,
+        createdAt=document_version.createdAt,
+    )
+    response.message = "Document upload completed successfully"
+    return response
+
+
 def complete_upload_handler(db: Session, version_id: uuid.UUID, request: CompleteUploadRequest, current_user) -> CompleteUploadResponse:
     log_event(
         logger,
@@ -205,21 +290,6 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
         db, DocumentVersion, version_id, logger,
         f"No document version exists with version_id {version_id}",
     )
-    conflict(
-        document_version.status != DocumentVersionStatus.PENDING,
-        f"Upload for this version is already {document_version.status.value}",
-        logger,
-        versionId=version_id,
-        status=document_version.status.value,
-    )
-    conflict(
-        request.uploadId != document_version.uploadId,
-        "uploadId does not match the one issued for this version",
-        logger,
-        versionId=version_id,
-        expectedUploadId=document_version.uploadId,
-    )
-
     document = get_or_404(
         db, Document, document_version.documentId, logger, "Parent document not found",
     )
@@ -227,6 +297,44 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
     if document.scope == DocumentScope.WORKSPACE and document.workspaceId is not None:
         workspace_obj = db.get(Workspace, document.workspaceId)
     _authorize_upload(db, current_user, document.scope.value, document.organizationId, workspace_obj)
+
+    if document_version.status != DocumentVersionStatus.PENDING:
+        conflict(
+            request.uploadId != document_version.uploadId,
+            "uploadId does not match the one issued for this version",
+            logger,
+            versionId=version_id,
+            expectedUploadId=document_version.uploadId,
+        )
+        conflict(
+            document_version.status == DocumentVersionStatus.ABORTED,
+            "Upload for this version was aborted and cannot be completed",
+            logger,
+            versionId=version_id,
+            status=document_version.status.value,
+        )
+        log_event(
+            logger,
+            "Complete replayed for already uploaded version",
+            documentId=document.id,
+            versionId=version_id,
+            status=document_version.status.value,
+        )
+        return _build_complete_response(
+            document,
+            document_version,
+            document_version.fileSize,
+            head_object_etag(document_version.objectKey) or document_version.hash,
+            document_version.hash,
+        )
+
+    conflict(
+        request.uploadId != document_version.uploadId,
+        "uploadId does not match the one issued for this version",
+        logger,
+        versionId=version_id,
+        expectedUploadId=document_version.uploadId,
+    )
 
     uploaded_parts = [{"PartNumber": part.partNumber, "ETag": part.etag} for part in request.parts]
 
@@ -242,18 +350,21 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
         )
         raise ObjectStorageError("Failed to complete file upload") from exc
 
-    conflict(
-        result["fileSize"] != document_version.fileSize,
-        f"Uploaded size {result['fileSize']} does not match registered size {document_version.fileSize}",
-        logger,
-        versionId=version_id,
-        expectedSize=document_version.fileSize,
-        actualSize=result["fileSize"],
-    )
     if result["fileSize"] != document_version.fileSize:
         abort_upload(document_version.objectKey, request.uploadId)
+        delete_object(document_version.objectKey)
+        document_version.status = DocumentVersionStatus.ABORTED
+        db.commit()
+        conflict(
+            True,
+            f"Uploaded size {result['fileSize']} does not match registered size {document_version.fileSize}",
+            logger,
+            versionId=version_id,
+            expectedSize=document_version.fileSize,
+            actualSize=result["fileSize"],
+        )
 
-    document_version.status = DocumentVersionStatus.AVAILABLE
+    document_version.status = DocumentVersionStatus.UPLOADED
     document_version.source_url = result["finalUrl"]
     stored_hash = request.hash if request.hash else result["etag"]
     document_version.hash = stored_hash
@@ -270,22 +381,7 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
         hash=stored_hash,
     )
 
-    response = CompleteUploadResponse(
-        documentId=document.id,
-        versionId=document_version.versionId,
-        status=document_version.status,
-        sourceUrl=document_version.source_url,
-        fileSize=result["fileSize"],
-        etag=result["etag"],
-        hash=stored_hash,
-        workspaceId=document.workspaceId,
-        organizationId=document.organizationId,
-        documentName=document.document_name,
-        mediaType=document_version.mediaType.value,
-        createdAt=document_version.createdAt,
-    )
-    response.message = "Document upload completed successfully"
-    return response
+    return _build_complete_response(document, document_version, result["fileSize"], result["etag"], stored_hash)
 
 
 def delete_document_handler(db: Session, document_id: uuid.UUID, current_user) -> dict:
@@ -407,6 +503,11 @@ def get_workspace_documents_handler(
             (v.versionId for v, _ in versions if v.status == DocumentVersionStatus.AVAILABLE.value),
             None,
         )
+        if active_version_id is None:
+            active_version_id = next(
+                (v.versionId for v, _ in versions if v.status == DocumentVersionStatus.UPLOADED.value),
+                None,
+            )
         rows.append({
             "documentId": doc.id,
             "name": doc.document_name,
@@ -534,7 +635,7 @@ def get_document_version_download_handler(
         raise NotFoundError("Version not found for this document")
 
     conflict(
-        version.status != DocumentVersionStatus.AVAILABLE,
+        version.status not in (DocumentVersionStatus.AVAILABLE, DocumentVersionStatus.UPLOADED),
         f"This version is {version.status.value} and cannot be downloaded",
         logger,
         versionId=version_id,

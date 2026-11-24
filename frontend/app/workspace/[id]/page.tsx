@@ -2,7 +2,7 @@
 
 import { use, Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { sha256 } from "js-sha256";
+import { uploadDocument, createUploadKeyTracker, mediaTypeFor } from "@/lib/upload";
 import {
   SendHorizontal,
   ArrowLeft,
@@ -453,7 +453,6 @@ function ShareDialog({
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const user = useAuth();
 
   useEffect(() => {
     if (!open) return;
@@ -627,6 +626,7 @@ function UploadDialog({
   const [error, setError] = useState<string | null>(null);
   const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string }[]>([]);
   const [versionOf, setVersionOf] = useState<string>("new");
+  const keyTracker = useRef(createUploadKeyTracker());
 
   useEffect(() => {
     if (!open) return;
@@ -634,6 +634,7 @@ function UploadDialog({
     setCustomName("");
     setError(null);
     setVersionOf("new");
+    keyTracker.current.reset();
     apiFetch<{ documents: { documentId: string; name: string }[] }>(
       `/document/list?workspaceId=${workspaceId}&pageSize=100`
     )
@@ -646,47 +647,24 @@ function UploadDialog({
     setUploading(true);
     setError(null);
     try {
-      const register = await apiFetch<{
-        versionId: string;
-        upload: { uploadId: string; objectKey: string; chunkSize: number; partUrls: { partNumber: number; url: string }[] };
-      }>("/document/register/init", {
-        method: "POST",
-        body: JSON.stringify({
+      await uploadDocument(
+        file,
+        {
           scope: "workspace",
           workspaceId,
           documentId: versionOf === "new" ? null : versionOf,
           documentName: customName || file.name,
           mediaType: mediaTypeFor(file.name),
           fileSize: file.size,
-        }),
-      });
-
-      const hasher = sha256.create();
-      const chunkSize = register.upload.chunkSize * 1024 * 1024;
-      const parts: { partNumber: number; etag: string }[] = [];
-      for (const part of register.upload.partUrls) {
-        const start = (part.partNumber - 1) * chunkSize;
-        const end = Math.min(part.partNumber * chunkSize, file.size);
-        const chunk = file.slice(start, end);
-        hasher.update(await chunk.arrayBuffer());
-        const res = await fetch(part.url, {
-          method: "PUT",
-          body: chunk,
-        });
-        if (!res.ok) throw new Error(`Part ${part.partNumber} upload failed`);
-        parts.push({ partNumber: part.partNumber, etag: res.headers.get("ETag") ?? "" });
-      }
-      const fileHash = hasher.hex();
-
-      await apiFetch(`/document/register/${register.versionId}/complete`, {
-        method: "POST",
-        body: JSON.stringify({ uploadId: register.upload.uploadId, parts, hash: fileHash }),
-      });
+        },
+        keyTracker.current.keyFor(file),
+      );
 
       onUploaded();
       onClose();
       setFile(null);
       setCustomName("");
+      keyTracker.current.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -763,17 +741,9 @@ function UploadDialog({
   );
 }
 
-function mediaTypeFor(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    pdf: "pdf", docx: "docx", txt: "txt", md: "md", png: "png", html: "html", csv: "csv",
-  };
-  return map[ext] ?? "txt";
-}
-
 interface DocVersion {
   versionId: string;
-  status: "pending" | "available" | "aborted";
+  status: "pending" | "uploaded" | "processing" | "ingesting" | "available" | "aborted";
   isActive: boolean;
   uploadedByName: string | null;
   fileSize: number | null;
@@ -1080,9 +1050,13 @@ function DocumentRow({
                       className={`absolute -left-[21px] size-2.5 rounded-full border-2 border-zinc-50 dark:border-zinc-900 ${
                         v.status === "available"
                           ? "bg-emerald-500"
-                          : v.status === "pending"
-                            ? "bg-amber-400"
-                            : "bg-zinc-300 dark:bg-zinc-600"
+                          : v.status === "uploaded"
+                            ? "bg-sky-500"
+                            : v.status === "processing" || v.status === "ingesting"
+                              ? "bg-violet-500"
+                              : v.status === "pending"
+                                ? "bg-amber-400"
+                                : "bg-zinc-300 dark:bg-zinc-600"
                       }`}
                     />
                     <div className="min-w-0 flex-1">
@@ -1096,6 +1070,9 @@ function DocumentRow({
                           </span>
                         )}
                         {v.status === "pending" && <span className="text-amber-600 dark:text-amber-400">uploading</span>}
+                        {v.status === "uploaded" && <span className="text-sky-600 dark:text-sky-400">uploaded</span>}
+                        {v.status === "processing" && <span className="text-violet-600 dark:text-violet-400">processing</span>}
+                        {v.status === "ingesting" && <span className="text-violet-600 dark:text-violet-400">ingesting</span>}
                         {v.status === "aborted" && <span className="text-zinc-400">aborted</span>}
                       </p>
                       <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -1103,7 +1080,7 @@ function DocumentRow({
                         {v.fileSize !== null && ` · ${(v.fileSize / 1024).toFixed(0)} KB`}
                       </p>
                     </div>
-                    {v.status === "available" && (
+                    {(v.status === "available" || v.status === "uploaded") && (
                       <Button
                         variant="ghost"
                         size="icon"

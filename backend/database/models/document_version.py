@@ -17,6 +17,9 @@ class MediaType(str, Enum):
 
 class DocumentVersionStatus(str, Enum):
     PENDING = "pending"
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    INGESTING = "ingesting"
     AVAILABLE = "available"
     ABORTED = "aborted"
 
@@ -44,3 +47,4 @@ class DocumentVersion(Base, AuditMixin):
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
     )
     hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)

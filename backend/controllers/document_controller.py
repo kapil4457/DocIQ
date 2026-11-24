@@ -2,7 +2,7 @@ import uuid
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database.db_engine import get_db
@@ -78,8 +78,9 @@ def register_document(
     request: RegisterDocumentRequest,
     db: Annotated[Session, Depends(get_db)],
     user: CurrentUser,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)] = None,
 ):
-    return register_document_handler(db, request, user)
+    return register_document_handler(db, request, user, idempotency_key)
 
 
 @router.delete("/{document_id}", response_model=BaseResponse)
