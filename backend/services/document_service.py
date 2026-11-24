@@ -9,7 +9,7 @@ from database.models.document import Document, Scope as DocumentScope
 from database.models.document_version import DocumentVersion, DocumentVersionStatus
 from database.models.user import User, UserRole
 from database.models.workspace import Workspace, WorkspaceMember
-from dto.request.create_document import RegisterDocumentRequest
+from dto.request.create_document import RegisterDocumentRequest, MAX_FILE_SIZE
 from dto.request.complete_upload import CompleteUploadRequest
 from dto.response.create_document import RegisterDocumentResponse
 from dto.response.complete_upload import CompleteUploadResponse
@@ -186,6 +186,15 @@ def _replay_register(db: Session, request: RegisterDocumentRequest, current_user
 def register_document_handler(db: Session, request: RegisterDocumentRequest, current_user, idempotency_key: str | None = None) -> RegisterDocumentResponse:
     workspace, organization_id = _resolve_upload_context(db, request, current_user)
     _authorize_upload(db, current_user, request.scope, organization_id, workspace)
+
+    # Defense-in-depth: enforce 500MB limit even if DTO validation is bypassed
+    forbid(
+        request.fileSize > MAX_FILE_SIZE,
+        f"File size exceeds maximum allowed limit of {MAX_FILE_SIZE // (1024 * 1024)} MB",
+        logger,
+        fileSize=request.fileSize,
+        maxFileSize=MAX_FILE_SIZE,
+    )
 
     if idempotency_key:
         replay = _replay_register(db, request, current_user, idempotency_key)

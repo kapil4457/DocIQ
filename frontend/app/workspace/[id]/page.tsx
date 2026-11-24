@@ -21,6 +21,8 @@ import {
   Check,
   Download,
 } from "lucide-react";
+
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -644,6 +646,10 @@ function UploadDialog({
 
   const startUpload = async () => {
     if (!file) return;
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`File size exceeds maximum allowed limit of ${MAX_FILE_SIZE / (1024 * 1024)} MB`);
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
@@ -699,7 +705,7 @@ function UploadDialog({
           ) : (
             <>
               <span className="text-sm font-medium">Select a file</span>
-              <span className="text-xs text-zinc-400">PDF, DOCX, TXT, MD, PNG, HTML or CSV</span>
+              <span className="text-xs text-zinc-400">PDF, DOCX, TXT, MD, PNG, HTML or CSV · Max 500 MB</span>
             </>
           )}
         </label>

@@ -170,8 +170,14 @@ function UploadButton({
       .catch(() => setExistingDocs([]));
   }, [open]);
 
+  const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+
   const handleUpload = async () => {
     if (!file) return;
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`File size exceeds maximum allowed limit of ${MAX_FILE_SIZE / (1024 * 1024)} MB`);
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
@@ -236,7 +242,7 @@ function UploadButton({
                 <span className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
                   Select a file
                 </span>
-                <span className="text-xs text-zinc-400">PDF, DOCX, TXT, MD, PNG, HTML or CSV</span>
+                <span className="text-xs text-zinc-400">PDF, DOCX, TXT, MD, PNG, HTML or CSV · Max 500 MB</span>
               </>
             )}
           </label>
