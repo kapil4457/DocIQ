@@ -467,7 +467,9 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
           <thead className="bg-zinc-50/50 dark:bg-zinc-800/50">
             <tr className="border-b border-zinc-200 dark:border-zinc-700">
               <th className="px-4 py-3 text-left font-medium text-zinc-700 dark:text-zinc-300">Document</th>
-              <th className="px-4 py-3 text-left font-medium text-zinc-700 dark:text-zinc-300">Versions</th>
+              {isAdmin && (
+                <th className="px-4 py-3 text-left font-medium text-zinc-700 dark:text-zinc-300">Versions</th>
+              )}
               <th className="px-4 py-3 text-left font-medium text-zinc-700 dark:text-zinc-300">Created</th>
               <th className="px-4 py-3 text-right font-medium text-zinc-700 dark:text-zinc-300 w-32">Actions</th>
             </tr>
@@ -475,14 +477,14 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {loading && docs.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-10 text-center">
+                <td colSpan={isAdmin ? 4 : 3} className="px-4 py-10 text-center">
                   <Loader2 className="size-6 animate-spin mx-auto text-zinc-400" />
                 </td>
               </tr>
             ) : docs.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-zinc-500 dark:text-zinc-400">
-                  No global documents yet. Use the Upload button in the navbar to add one.
+                <td colSpan={isAdmin ? 4 : 3} className="px-4 py-10 text-center text-zinc-500 dark:text-zinc-400">
+                  No global documents available yet.
                 </td>
               </tr>
             ) : (
@@ -502,35 +504,39 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                        onClick={() => setExpandedId(expandedId === doc.documentId ? null : doc.documentId)}
-                      >
-                        {doc.versionCount} version{doc.versionCount !== 1 ? "s" : ""}
-                        <ChevronDown className={`size-3.5 ml-1 transition-transform ${expandedId === doc.documentId ? "rotate-180" : ""}`} />
-                      </Button>
-                    </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                          onClick={() => setExpandedId(expandedId === doc.documentId ? null : doc.documentId)}
+                        >
+                          {doc.versionCount} version{doc.versionCount !== 1 ? "s" : ""}
+                          <ChevronDown className={`size-3.5 ml-1 transition-transform ${expandedId === doc.documentId ? "rotate-180" : ""}`} />
+                        </Button>
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
                       {new Date(doc.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
-                          onClick={() => setConfirmDocId(doc.documentId)}
-                          aria-label={`Delete ${doc.name}`}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+                            onClick={() => setConfirmDocId(doc.documentId)}
+                            aria-label={`Delete ${doc.name}`}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
-                  {expandedId === doc.documentId && (
+                  {isAdmin && expandedId === doc.documentId && (
                     <tr className="border-b border-zinc-100 dark:border-zinc-800/50 animate-in rise-in-sm duration-300 ease-out-soft">
                       <td colSpan={4} className="px-3 pb-4 pt-1">
                         <div className="ml-6 max-h-56 overflow-y-auto rounded-xl border border-zinc-200/70 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
@@ -558,7 +564,7 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                                     {v.fileSize !== null && ` · ${(v.fileSize / 1024).toFixed(0)} KB`}
                                   </p>
                                 </div>
-                                {(v.status === "available" || v.status === "uploaded") && (
+                                {v.status === "available" && (
                                   <DownloadButton
                                     documentId={doc.documentId}
                                     versionId={v.versionId}
@@ -687,7 +693,7 @@ export default function GlobalDocumentsPage() {
     );
   }
 
-  const isAdmin = user.role === "org_admin" || user.role === "org_super_admin";
+  const isAdmin = user.role === "org_admin";
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 animate-in fade-in duration-300">

@@ -560,15 +560,15 @@ def get_organization_documents_handler(
     db: Session, organization_id: uuid.UUID, current_user, page: int, page_size: int
 ) -> dict:
     """List global documents for an organization.
-    org_admin/org_super_admin: full version trails + upload
-    org_participant/org_super_admin: latest available version only (read-only)"""
+    org_admin: full version trails + upload (all docs)
+    org_super_admin/participant: latest available version only (AVAILABLE docs only, read-only)"""
     forbid(
         current_user.organizationId != organization_id,
         "You can only access documents in your own organization",
         logger,
         userId=str(current_user.id),
     )
-    is_admin = current_user.role in (UserRole.ORG_ADMIN, UserRole.ORG_SUPER_ADMIN)
+    is_admin = current_user.role == UserRole.ORG_ADMIN
     is_viewer = current_user.role in (UserRole.PARTICIPANT, UserRole.ORG_SUPER_ADMIN)
     forbid(
         not (is_admin or is_viewer),
@@ -581,14 +581,35 @@ def get_organization_documents_handler(
     # Viewers (participant, org_super_admin) only see latest available version
     show_full_trail = is_admin
 
-    doc_scope = select(Document).where(
-        Document.organizationId == organization_id,
-        Document.scope == DocumentScope.GLOBAL,
-    )
-    doc_count = select(func.count()).select_from(Document).where(
-        Document.organizationId == organization_id,
-        Document.scope == DocumentScope.GLOBAL,
-    )
+    # For viewers, only show documents that have at least one AVAILABLE version
+    if is_viewer and not is_admin:
+        doc_scope = select(Document).where(
+            Document.organizationId == organization_id,
+            Document.scope == DocumentScope.GLOBAL,
+            Document.id.in_(
+                select(DocumentVersion.documentId).where(
+                    DocumentVersion.status == DocumentVersionStatus.AVAILABLE
+                )
+            ),
+        )
+        doc_count = select(func.count()).select_from(Document).where(
+            Document.organizationId == organization_id,
+            Document.scope == DocumentScope.GLOBAL,
+            Document.id.in_(
+                select(DocumentVersion.documentId).where(
+                    DocumentVersion.status == DocumentVersionStatus.AVAILABLE
+                )
+            ),
+        )
+    else:
+        doc_scope = select(Document).where(
+            Document.organizationId == organization_id,
+            Document.scope == DocumentScope.GLOBAL,
+        )
+        doc_count = select(func.count()).select_from(Document).where(
+            Document.organizationId == organization_id,
+            Document.scope == DocumentScope.GLOBAL,
+        )
     result = paginate(db, doc_scope.order_by(Document.createdAt.desc()), doc_count, page, page_size)
     documents = result["items"]
 

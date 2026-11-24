@@ -14,7 +14,6 @@ import { apiFetch } from "@/lib/api";
 
 export function Navbar() {
   const user = useAuth();
-  const [workspacesOpen, setWorkspacesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
 
@@ -29,9 +28,7 @@ export function Navbar() {
         </Link>
 
         <nav className="flex items-center gap-1.5">
-          {user && user.role !== "super_admin" && (
-            <WorkspacesButton userId={user.userId} open={workspacesOpen} onOpenChange={setWorkspacesOpen} />
-          )}
+          {user && user.role !== "super_admin" && <WorkspacesButton />}
           {canUploadDocuments(user) && <UploadButton open={uploadOpen} onOpenChange={setUploadOpen} />}
           {user?.role === "super_admin" && (
             <Link href="/manage-organizations">
@@ -133,100 +130,14 @@ function AccountButton({
   );
 }
 
-function WorkspacesButton({
-  userId,
-  open,
-  onOpenChange,
-}: {
-  userId: string | null;
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-}) {
-  const router = useRouter();
-  const [workspaces, setWorkspaces] = useState<
-    { id: string; name: string; messageCount: number; lastActive: string }[]
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const load = () => {
-    if (!userId) return;
-    setLoading(true);
-    // TODO: GET /workspace/list scoped to user once backend workspace endpoints return
-    setTimeout(() => {
-      setWorkspaces([]);
-      setLoading(false);
-    }, 300);
-  };
-
+function WorkspacesButton() {
   return (
-    <div
-      className="relative"
-      onMouseEnter={() => {
-        if (closeTimer.current) clearTimeout(closeTimer.current);
-        load();
-        onOpenChange(true);
-      }}
-      onMouseLeave={() => {
-        closeTimer.current = setTimeout(() => onOpenChange(false), 200);
-      }}
-    >
-      <Button variant="ghost" size="sm" onClick={() => onOpenChange(!open)}>
+    <Link href="/workspaces">
+      <Button variant="ghost" size="sm">
         <FolderOpen className="size-4" />
         Workspaces
       </Button>
-      {open && (
-        <div className="absolute left-1/2 z-50 mt-2 w-[380px] -translate-x-1/2">
-          <div className="rounded-2xl border border-zinc-200/70 bg-white/95 shadow-2xl shadow-zinc-950/15 backdrop-blur-2xl dark:border-zinc-700/60 dark:bg-zinc-900/95 origin-top animate-in drop-in duration-300 ease-out-soft">
-            <div className="flex items-center justify-between border-b border-zinc-200/50 px-4 py-3 dark:border-white/5">
-              <p className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Your workspaces</p>
-              <span className="text-xs text-zinc-400">{workspaces.length || ""}</span>
-            </div>
-            <div className="max-h-80 overflow-y-auto p-2">
-              {!userId ? (
-                <p className="px-3 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                  Log in to see your workspaces
-                </p>
-              ) : loading ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 className="size-5 animate-spin text-zinc-400" />
-                </div>
-              ) : workspaces.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                  No workspaces yet. Create one from the home page.
-                </p>
-              ) : (
-                <ul className="space-y-1">
-                  {workspaces.map((ws) => (
-                    <li key={ws.id}>
-                      <button
-                        onClick={() => {
-                          onOpenChange(false);
-                          router.push(`/workspace/${ws.id}`);
-                        }}
-                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/80 dark:hover:bg-white/10"
-                      >
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-950/5 text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
-                          <FileText className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-zinc-950 dark:text-zinc-50">
-                            {ws.name}
-                          </span>
-                          <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                            {ws.messageCount} messages · {ws.lastActive}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </Link>
   );
 }
 
