@@ -295,3 +295,43 @@ def finish_upload(object_key: str, upload_id: str, uploaded_parts: list) -> dict
         "fileSize": head["ContentLength"],
         "etag": head["ETag"].strip('"'),
     }
+
+
+def move_object(source_key: str, destination_key: str) -> None:
+    """Move an object from source_key to destination_key via copy + delete.
+    R2 doesn't have a native move, so we copy then delete source."""
+    try:
+        copy_source = {"Bucket": BUCKET_NAME, "Key": source_key}
+        s3_client.copy(copy_source, BUCKET_NAME, destination_key)
+        s3_client.delete_object(Bucket=BUCKET_NAME, Key=source_key)
+        logger.info(
+            "Object moved",
+            extra={"extra_data": {"sourceKey": source_key, "destinationKey": destination_key}},
+        )
+    except ClientError:
+        logger.error(
+            "Failed to move object",
+            extra={"extra_data": {"sourceKey": source_key, "destinationKey": destination_key}},
+            exc_info=True,
+        )
+        raise
+
+
+def get_storage_folder(status: str) -> str:
+    """Map document version status to storage folder."""
+    mapping = {
+        "pending": "unprocessed",
+        "uploaded": "unprocessed",
+        "processing": "unprocessed",
+        "ingesting": "unprocessed",
+        "available": "safe",
+        "quarantined": "quarantined",
+        "aborted": "unprocessed",
+    }
+    return mapping.get(status, "unprocessed")
+
+
+def build_object_key(org_id: str, document_id: str, version_id: str, status: str) -> str:
+    """Build object key with status-based folder prefix."""
+    folder = get_storage_folder(status)
+    return f"{folder}/{org_id}/{document_id}/{version_id}"

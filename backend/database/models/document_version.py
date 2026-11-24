@@ -21,6 +21,7 @@ class DocumentVersionStatus(str, Enum):
     PROCESSING = "processing"
     INGESTING = "ingesting"
     AVAILABLE = "available"
+    QUARANTINED = "quarantined"
     ABORTED = "aborted"
 
 class DocumentVersion(Base, AuditMixin):
@@ -47,4 +48,6 @@ class DocumentVersion(Base, AuditMixin):
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
     )
     hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    storage_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    quarantine_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)

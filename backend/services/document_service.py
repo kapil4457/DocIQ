@@ -13,7 +13,7 @@ from dto.request.create_document import RegisterDocumentRequest, MAX_FILE_SIZE
 from dto.request.complete_upload import CompleteUploadRequest
 from dto.response.create_document import RegisterDocumentResponse
 from dto.response.complete_upload import CompleteUploadResponse
-from utils.object_storage import start_upload, finish_upload, abort_upload, delete_object, download_url, resume_part_urls, head_object_etag
+from utils.object_storage import start_upload, finish_upload, abort_upload, delete_object, download_url, resume_part_urls, head_object_etag, move_object, build_object_key
 from events import create_event_publisher, DocumentReadyEvent
 from utils.exception_handler import ObjectStorageError, ForbiddenError, NotFoundError
 from services.shared import (
@@ -102,7 +102,7 @@ def _get_or_create_document(db: Session, request: RegisterDocumentRequest, organ
     return document
 
 
-def _create_pending_version(db: Session, document: Document, request: RegisterDocumentRequest, current_user) -> DocumentVersion:
+def _create_pending_version(db: Session, document: Document, request: RegisterDocumentRequest, current_user, idempotency_key: str | None = None) -> DocumentVersion:
     document_version = DocumentVersion(
         documentId=document.id,
         mediaType=request.mediaType,
@@ -111,9 +111,17 @@ def _create_pending_version(db: Session, document: Document, request: RegisterDo
         createdBy=current_user.id,
         modifiedBy=current_user.id,
     )
+    if idempotency_key:
+        document_version.idempotency_key = idempotency_key
     db.add(document_version)
     db.flush()
-    document_version.objectKey = f"{document.organizationId}/{document.id}/{document_version.versionId}"
+    document_version.objectKey = build_object_key(
+        str(document.organizationId),
+        str(document.id),
+        str(document_version.versionId),
+        DocumentVersionStatus.PENDING.value,
+    )
+    document_version.storage_path = document_version.objectKey
     log_event(
         logger,
         "Document version created",
@@ -215,7 +223,7 @@ def register_document_handler(db: Session, request: RegisterDocumentRequest, cur
 
     try:
         document = _get_or_create_document(db, request, organization_id, current_user)
-        document_version = _create_pending_version(db, document, request, current_user)
+        document_version = _create_pending_version(db, document, request, current_user, idempotency_key)
 
         try:
             upload_info = start_upload(document_version.objectKey, request.fileSize)
@@ -375,7 +383,19 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
             actualSize=result["fileSize"],
         )
 
+    # Move from pending folder to unprocessed folder (uploaded status)
+    old_key = document_version.objectKey
+    new_key = build_object_key(
+        str(document.organizationId),
+        str(document.id),
+        str(document_version.versionId),
+        DocumentVersionStatus.UPLOADED.value,
+    )
+    move_object(old_key, new_key)
+
     document_version.status = DocumentVersionStatus.UPLOADED
+    document_version.objectKey = new_key
+    document_version.storage_path = new_key
     document_version.source_url = result["finalUrl"]
     stored_hash = request.hash if request.hash else result["etag"]
     document_version.hash = stored_hash
@@ -416,6 +436,71 @@ def complete_upload_handler(db: Session, version_id: uuid.UUID, request: Complet
         )
 
     return _build_complete_response(document, document_version, result["fileSize"], result["etag"], stored_hash)
+
+
+def transition_to_available(db: Session, document_version: DocumentVersion) -> None:
+    """Move document version from unprocessed to safe folder when processing succeeds."""
+    if document_version.status == DocumentVersionStatus.AVAILABLE:
+        return  # Already in safe
+
+    old_key = document_version.objectKey
+    new_key = build_object_key(
+        str(document_version.document.organizationId),
+        str(document_version.documentId),
+        str(document_version.versionId),
+        DocumentVersionStatus.AVAILABLE.value,
+    )
+    move_object(old_key, new_key)
+
+    document_version.status = DocumentVersionStatus.AVAILABLE
+    document_version.objectKey = new_key
+    document_version.storage_path = new_key
+    db.commit()
+    log_event(
+        logger,
+        "Document version moved to safe storage",
+        versionId=document_version.versionId,
+        documentId=document_version.documentId,
+    )
+
+
+def transition_to_quarantined(db: Session, document_version: DocumentVersion, reason: str) -> None:
+    """Move document version to quarantined folder with reason."""
+    if document_version.status == DocumentVersionStatus.QUARANTINED:
+        return  # Already quarantined
+
+    old_key = document_version.objectKey
+    new_key = build_object_key(
+        str(document_version.document.organizationId),
+        str(document_version.documentId),
+        str(document_version.versionId),
+        DocumentVersionStatus.QUARANTINED.value,
+    )
+    move_object(old_key, new_key)
+
+    document_version.status = DocumentVersionStatus.QUARANTINED
+    document_version.objectKey = new_key
+    document_version.storage_path = new_key
+    document_version.quarantine_reason = reason
+    db.commit()
+    log_event(
+        logger,
+        "Document version quarantined",
+        versionId=document_version.versionId,
+        documentId=document_version.documentId,
+        reason=reason,
+    )
+
+
+def move_document_version_storage(db: Session, document_version: DocumentVersion, new_status: DocumentVersionStatus, reason: str | None = None) -> None:
+    """Move document version between storage folders based on status."""
+    if new_status == DocumentVersionStatus.AVAILABLE:
+        transition_to_available(db, document_version)
+    elif new_status == DocumentVersionStatus.QUARANTINED:
+        if not reason:
+            raise ValueError("Quarantine reason is required")
+        transition_to_quarantined(db, document_version, reason)
+    # For other statuses, no move needed (stay in unprocessed)
 
 
 def delete_document_handler(db: Session, document_id: uuid.UUID, current_user) -> dict:
@@ -820,7 +905,9 @@ def get_document_version_download_handler(
         if not filename.lower().endswith(f".{extension}"):
             filename = f"{filename}.{extension}"
 
-    url = download_url(version.objectKey, filename)
+    # Use storage_path for the actual file location
+    object_key = version.storage_path or version.objectKey
+    url = download_url(object_key, filename)
     log_event(
         logger, "Download URL issued",
         documentId=document_id,
@@ -828,3 +915,43 @@ def get_document_version_download_handler(
         userId=str(current_user.id),
     )
     return {"url": url, "filename": filename}
+
+
+def get_processable_document_versions(
+    db: Session, limit: int = 10
+) -> list[dict]:
+    """Return oldest document versions ready for processing.
+
+    Filters for versions with status UPLOADED or AVAILABLE that haven't been
+    picked up for processing yet. Ordered by created_at ascending (oldest first).
+    """
+    from database.models.document_version import DocumentVersion, DocumentVersionStatus
+    from database.models.document import Document, Scope as DocumentScope
+
+    versions = db.execute(
+        select(DocumentVersion, Document)
+        .join(Document, Document.id == DocumentVersion.documentId)
+        .where(
+            DocumentVersion.status.in_([DocumentVersionStatus.UPLOADED, DocumentVersionStatus.AVAILABLE]),
+            Document.scope == DocumentScope.GLOBAL,
+        )
+        .order_by(DocumentVersion.createdAt.asc())
+        .limit(limit)
+    ).all()
+
+    result = []
+    for version, document in versions:
+        result.append({
+            "versionId": str(version.versionId),
+            "documentId": str(document.id),
+            "documentName": document.document_name,
+            "organizationId": str(document.organizationId),
+            "objectKey": version.objectKey,
+            "fileSize": version.fileSize,
+            "mediaType": version.mediaType.value,
+            "sha256Hash": version.hash,
+            "status": version.status.value,
+            "createdAt": version.createdAt.isoformat() if version.createdAt else None,
+        })
+
+    return result

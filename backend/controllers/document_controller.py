@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database.db_engine import get_db
+from database.models.document import Document
 from dto.request.create_document import RegisterDocumentRequest
 from dto.request.complete_upload import CompleteUploadRequest
 from dto.response.create_document import RegisterDocumentResponse
@@ -20,6 +21,9 @@ from services.document_service import (
     get_organization_documents_handler,
     delete_document_version_handler,
     get_document_version_download_handler,
+    get_processable_document_versions,
+    transition_to_available,
+    transition_to_quarantined,
 )
 from utils.auth_dependencies import CurrentUser
 from utils.exception_handler import NotFoundError, ForbiddenError, ConflictError, ObjectStorageError
@@ -123,5 +127,63 @@ def complete_document_upload(
         return complete_upload_handler(db, version_id, request, user)
     except (NotFoundError, ConflictError) as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    except ObjectStorageError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.detail)
+
+
+@router.get("/processable", response_model=list[dict])
+def get_processable_versions(
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(10, ge=1, le=100),
+):
+    """Get oldest document versions ready for processing.
+
+    Returns up to `limit` document versions with status UPLOADED or AVAILABLE
+    that are ready to be processed. Ordered by creation date (oldest first).
+
+    This endpoint is intended for worker services to poll for work.
+    """
+    return get_processable_document_versions(db, limit)
+
+
+@router.post("/{document_id}/versions/{version_id}/quarantine")
+def quarantine_document_version(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    reason: str = Query(..., min_length=1, max_length=500),
+):
+    """Quarantine a document version with a reason.
+
+    Moves the document to the quarantined folder and sets the quarantine reason.
+    Only org_admin can quarantine documents.
+    """
+    try:
+        transition_to_quarantined(db, db.get(DocumentVersion, version_id), reason)
+        return {"message": "Document version quarantined", "reason": reason}
+    except (NotFoundError, ForbiddenError, ValueError) as exc:
+        raise HTTPException(status_code=exc.status_code if hasattr(exc, 'status_code') else 400, detail=str(exc))
+    except ObjectStorageError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.detail)
+
+
+@router.post("/{document_id}/versions/{version_id}/mark-safe")
+def mark_document_version_safe(
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+):
+    """Mark a document version as safe (move to safe storage).
+
+    Moves the document from unprocessed to safe folder.
+    Only org_admin can mark documents as safe.
+    """
+    try:
+        transition_to_available(db, db.get(DocumentVersion, version_id))
+        return {"message": "Document version marked as safe"}
+    except (NotFoundError, ForbiddenError) as exc:
+        raise HTTPException(status_code=exc.status_code if hasattr(exc, 'status_code') else 400, detail=str(exc))
     except ObjectStorageError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.detail)

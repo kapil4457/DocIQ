@@ -23,7 +23,13 @@ def init_db() -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_document_versions_idempotency_key "
             "ON document_versions (idempotency_key)"
         ))
-        for status_value in ("uploaded", "processing", "ingesting"):
+        conn.execute(text(
+            "ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS storage_path VARCHAR(512)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS quarantine_reason TEXT"
+        ))
+        for status_value in ("uploaded", "processing", "ingesting", "quarantined"):
             conn.execute(text(
                 f"ALTER TYPE document_version_status ADD VALUE IF NOT EXISTS '{status_value}'"
             ))
