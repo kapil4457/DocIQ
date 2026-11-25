@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from database.models.document import Document, Scope as DocumentScope
-from database.models.document_version import DocumentVersion, DocumentVersionStatus
+from database.models.document_version import DocumentVersion, DocumentVersionStatus, MediaType
 from database.models.user import User, UserRole
 from database.models.workspace import Workspace, WorkspaceMember
 from dto.request.create_document import RegisterDocumentRequest, MAX_FILE_SIZE
@@ -98,6 +98,25 @@ def _get_or_create_document(db: Session, request: RegisterDocumentRequest, organ
             logger,
             documentId=str(request.documentId),
             workspaceId=str(request.workspaceId),
+        )
+
+    # All versions of a document must share one media type: a document trail
+    # mixing, say, PDF and PNG versions makes downstream processing (parsing,
+    # ingestion, rendering) ambiguous. Reject at registration time.
+    existing_type = db.scalar(
+        select(DocumentVersion.mediaType)
+        .where(DocumentVersion.documentId == document.id)
+        .limit(1)
+    )
+    if existing_type is not None and existing_type != request.mediaType:
+        conflict(
+            True,
+            f"This document's versions are {existing_type.value}; a {request.mediaType.value} "
+            f"file cannot be added as a version. Upload it as a new document instead.",
+            logger,
+            documentId=str(document.id),
+            existingType=existing_type.value,
+            requestedType=request.mediaType.value,
         )
     return document
 
@@ -630,6 +649,7 @@ def get_workspace_documents_handler(
                 "uploadedByName": uploader_name,
                 "fileSize": v.fileSize,
                 "createdAt": v.createdAt,
+                "quarantineReason": v.quarantine_reason,
             }
             for v, uploader_name in versions
         ]
@@ -639,6 +659,10 @@ def get_workspace_documents_handler(
             "uploadedByName": uploader_names.get(doc.createdBy),
             "createdAt": doc.createdAt,
             "versionCount": len(versions),
+            "mediaTypes": sorted({
+                (v.mediaType.value if isinstance(v.mediaType, MediaType) else v.mediaType)
+                for v, _ in versions
+            }),
             "versions": version_list,
         })
 
@@ -742,6 +766,7 @@ def get_organization_documents_handler(
                     "uploadedByName": uploader_name,
                     "fileSize": v.fileSize,
                     "createdAt": v.createdAt,
+                    "quarantineReason": v.quarantine_reason,
                 }
                 for v, uploader_name in versions
             ]
@@ -771,6 +796,10 @@ def get_organization_documents_handler(
             "uploadedByName": uploader_names.get(doc.createdBy),
             "createdAt": doc.createdAt,
             "versionCount": len(versions),
+            "mediaTypes": sorted({
+                (v.mediaType.value if isinstance(v.mediaType, MediaType) else v.mediaType)
+                for v, _ in versions
+            }),
             "versions": version_list,
         })
 

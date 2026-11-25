@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+import os
 
 import clamd
 
@@ -31,14 +32,43 @@ class ClamAVScanner:
         host: str = "127.0.0.1",
         port: int = 3310,
         timeout: int = 120,
+        shared_mount_host: str | None = None,
+        shared_mount_container: str = "/shared",
     ):
 
         self.config = config
         self.host = host
         self.port = port
         self.timeout = timeout
+        # Host-side staging dir; when None, no path translation is done
+        # (correct for a natively-installed ClamAV daemon).
+        self.shared_mount_host = shared_mount_host
+        self.shared_mount_container = shared_mount_container
+
+    def _translate_path(self, host_path: str) -> str:
+        """Translate Windows host path to container path (Docker deployment)."""
+        if self.shared_mount_host and host_path.startswith(self.shared_mount_host):
+            rel_path = os.path.relpath(host_path, self.shared_mount_host)
+            return os.path.join(self.shared_mount_container, rel_path).replace("\\", "/")
+        return host_path
 
     def scan(self, file_path: str) -> AntivirusReport:
+
+        # Translate path for ClamAV in Docker
+        container_path = self._translate_path(file_path)
+
+        # Debug: check if file exists
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Scanning file: host={file_path}, container={container_path}")
+        logger.debug(f"Host file exists: {os.path.exists(file_path)}")
+
+        # Check if container can see it
+        try:
+            # We can't easily check container filesystem from host
+            pass
+        except:
+            pass
 
         try:
 
@@ -57,13 +87,14 @@ class ClamAVScanner:
             if not version:
                 raise RuntimeError("ClamAV version unavailable")
 
-            # Scan file.
-            result = client.scan(file_path)
+            # Scan file using container path.
+            logger.debug(f"Scanning container path: {container_path}")
+            result = client.scan(container_path)
 
             if not result:
                 raise RuntimeError("No scan result returned")
 
-            file_result = result.get(file_path)
+            file_result = result.get(container_path)
 
             if not file_result:
                 raise RuntimeError(

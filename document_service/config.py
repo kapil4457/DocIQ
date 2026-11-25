@@ -31,6 +31,19 @@ class Settings(BaseSettings):
     max_file_size: int = int(os.getenv("MAX_FILE_SIZE", str(50 * 1024 * 1024)))  # 50MB
     max_processing_size: int = int(os.getenv("MAX_PROCESSING_SIZE", str(50 * 1024 * 1024)))
 
+    # ClamAV
+    clamav_host: str = os.getenv("CLAMAV_HOST", "127.0.0.1")
+    clamav_port: int = int(os.getenv("CLAMAV_PORT", "3310"))
+    clamav_timeout: int = int(os.getenv("CLAMAV_TIMEOUT", "120"))
+    # Directory where scanned files are staged. MUST be the host path of the
+    # Docker volume also mounted into the ClamAV container (/shared), because
+    # ClamAV's SCAN command operates on paths visible to the daemon.
+    # If ClamAV runs natively (not in Docker), set this equal to the system
+    # temp dir and CLAMAV_SHARED_MOUNT_CONTAINER to "" (no translation).
+    security_scan_dir: str = os.getenv("SECURITY_SCAN_DIR", r"D:\Projects\DocIQ\clamav")
+    # Path of that same volume inside the container ("" disables translation).
+    clamav_shared_mount_container: str = os.getenv("CLAMAV_SHARED_MOUNT_CONTAINER", "/shared")
+
     # R2/Object Storage
     r2_account_id: str = os.getenv("R2_ACCOUNT_ID", "")
     r2_access_key_id: str = os.getenv("R2_ACCESS_KEY_ID", "")

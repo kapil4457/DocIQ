@@ -29,8 +29,11 @@ class DocumentScope(str, Enum):
 class DocumentVersionStatus(str, Enum):
     PENDING = "pending"
     UPLOADED = "uploaded"
-    PROCESSING = "processing"
+    SECURITY_PENDING = "security_pending"
+    SECURITY_RUNNING = "security_running"
+    SECURITY_FAILED = "security_failed"
     INGESTING = "ingesting"
+    PROCESSING_FAILED = "processing_failed"
     AVAILABLE = "available"
     QUARANTINED = "quarantined"
     ABORTED = "aborted"
@@ -45,21 +48,21 @@ class Document(Base, AuditMixin):
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     workspaceId: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
+        PG_UUID(as_uuid=True), nullable=True
     )
     scope: Mapped[DocumentScope] = mapped_column(
         SAEnum(DocumentScope, name="document_scope", values_callable=lambda e: [m.value for m in e]),
         nullable=False,
     )
     organizationId: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        PG_UUID(as_uuid=True), nullable=False
     )
     document_name: Mapped[str] = mapped_column(String(500), nullable=False)
 
-    # Relationships
-    versions: Mapped[list["DocumentVersion"]] = relationship(
-        "DocumentVersion", back_populates="document", cascade="all, delete-orphan"
-    )
+    # Relationships disabled - document_service uses separate DB
+    # versions: Mapped[list["DocumentVersion"]] = relationship(
+    #     "DocumentVersion", back_populates="document", cascade="all, delete-orphan"
+    # )
 
     __table_args__ = (
         Index("ix_documents_organization", "organizationId"),
@@ -93,15 +96,15 @@ class DocumentVersion(Base, AuditMixin):
         nullable=False,
     )
     workspaceId: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
+        PG_UUID(as_uuid=True), nullable=True
     )
     hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     quarantine_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(default=0, nullable=False)
 
-    # Relationships
-    document: Mapped["Document"] = relationship("Document", back_populates="versions")
+    # Relationships disabled - document_service uses separate DB
+    # document: Mapped["Document"] = relationship("Document", back_populates="versions")
 
     __table_args__ = (
         Index("ix_document_versions_document", "documentId"),

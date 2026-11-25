@@ -21,6 +21,8 @@ import {
   ChevronRight,
   Check,
   Download,
+  ShieldAlert,
+  Info,
 } from "lucide-react";
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
@@ -627,7 +629,7 @@ function UploadDialog({
   const [customName, setCustomName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string }[]>([]);
+  const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string; mediaTypes: string[] }[]>([]);
   const [versionOf, setVersionOf] = useState<string>("new");
   const keyTracker = useRef(createUploadKeyTracker());
   const { success, error: toastError } = useToastHelpers();
@@ -639,7 +641,7 @@ function UploadDialog({
     setError(null);
     setVersionOf("new");
     keyTracker.current.reset();
-    apiFetch<{ documents: { documentId: string; name: string }[] }>(
+    apiFetch<{ documents: { documentId: string; name: string; mediaTypes: string[] }[] }>(
       `/document/list?workspaceId=${workspaceId}&pageSize=100`
     )
       .then((res) => setExistingDocs(res.documents))
@@ -703,7 +705,10 @@ function UploadDialog({
             type="file"
             className="sr-only"
             accept=".pdf,.docx,.txt,.md,.png,.html,.csv"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setVersionOf("new"); // re-filter version targets for the new file's type
+            }}
           />
           <FileText className="size-6 text-zinc-400" />
           {file ? (
@@ -724,12 +729,20 @@ function UploadDialog({
             className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50 cursor-pointer"
           >
             <option value="new">New document</option>
-            {existingDocs.map((d) => (
+            {(file
+              ? existingDocs.filter((d) => d.mediaTypes.length === 0 || d.mediaTypes.includes(mediaTypeFor(file.name)))
+              : existingDocs
+            ).map((d) => (
               <option key={d.documentId} value={d.documentId}>
                 New version of: {d.name}
               </option>
             ))}
           </select>
+          {file && versionOf !== "new" && (
+            <p className="text-xs text-zinc-400">
+              Showing only documents of the same type ({mediaTypeFor(file.name)}) — versions must match the document's type.
+            </p>
+          )}
         </div>
         {versionOf === "new" && (
           <div className="space-y-1.5">
@@ -757,11 +770,95 @@ function UploadDialog({
 
 interface DocVersion {
   versionId: string;
-  status: "pending" | "uploaded" | "processing" | "ingesting" | "available" | "aborted";
+  status: "pending" | "uploaded" | "security_pending" | "security_running" | "security_failed" | "processing" | "ingesting" | "processing_failed" | "available" | "aborted" | "quarantined";
   isActive: boolean;
   uploadedByName: string | null;
   fileSize: number | null;
   createdAt: string;
+  quarantineReason?: string | null;
+}
+
+function hasErrorDetail(status: DocVersion["status"]) {
+  return status === "security_failed" || status === "quarantined" || status === "processing_failed" || status === "aborted";
+}
+
+/** Split a stored failure reason into readable, formatted lines. */
+function formatFailureReason(reason: string): { title: string; details: string[] } {
+  const match = reason.match(/^(.*?)\s*\(failed:\s*([\s\S]+)\)\s*$/);
+  if (match) {
+    const checks = match[2].split(",").map((c) => c.trim()).filter(Boolean);
+    return { title: match[1].trim(), details: checks.map((c) => `Failed check: ${c}`) };
+  }
+  if (reason.includes("; ")) {
+    const [first, ...rest] = reason.split("; ");
+    return { title: first.trim(), details: rest.map((r) => r.trim()) };
+  }
+  return { title: reason.trim(), details: [] };
+}
+
+function FailureDetailDialog({
+  open,
+  versionId,
+  status,
+  reason,
+  onClose,
+}: {
+  open: boolean;
+  versionId: string;
+  status: DocVersion["status"];
+  reason: string | null | undefined;
+  onClose: () => void;
+}) {
+  const { title, details } = formatFailureReason(reason || "No failure details were recorded for this version.");
+  const isInfected = /malware|antivirus/i.test(title);
+  const badgeClass =
+    status === "available"
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
+      : status === "uploaded" || status === "security_pending"
+        ? "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300"
+        : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <ShieldAlert className="size-5 text-red-600 dark:text-red-400" />
+          Security check details
+        </DialogTitle>
+        <DialogDescription>
+          Version {versionId.slice(0, 8)}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogClose onClose={onClose} />
+      <div className="space-y-4">
+        <div className="rounded-xl border border-red-200 bg-red-50/60 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-red-500 dark:text-red-400">
+            {isInfected ? "Threat detected" : "Failure reason"}
+          </p>
+          <p className="mt-1.5 text-sm font-medium text-red-800 dark:text-red-200">{title}</p>
+        </div>
+        {details.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Details</p>
+            <ul className="space-y-1">
+              {details.map((d, i) => (
+                <li key={i} className="flex items-start gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
+                  <span className="mt-1 size-1.5 shrink-0 rounded-full bg-zinc-400" />
+                  <span className="font-mono">{d}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="rounded-lg bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 dark:bg-zinc-800/40 dark:text-zinc-400">
+          This file was not promoted to your knowledge base. Upload a corrected version as a new version of this document.
+        </div>
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Dialog>
+  );
 }
 
 interface DocRow {
@@ -771,6 +868,17 @@ interface DocRow {
   createdAt: string;
   versionCount: number;
   versions: DocVersion[];
+}
+
+/** Human-readable file size: B / KB / MB / GB with sensible precision. */
+function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb >= 100 ? kb.toFixed(0) : kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb >= 100 ? mb.toFixed(0) : mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
 }
 
 function DocumentsPanel({
@@ -796,6 +904,7 @@ function DocumentsPanel({
   const [confirmVersionId, setConfirmVersionId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [downloadingVersionId, setDownloadingVersionId] = useState<string | null>(null);
+  const [detailVersion, setDetailVersion] = useState<DocVersion | null>(null);
   const PAGE_SIZE = 8;
 
   const load = useCallback(async (p: number) => {
@@ -806,6 +915,14 @@ function DocumentsPanel({
       setDocs(res.documents);
       setTotal(res.total);
       onCountChange(res.total);
+      // Clamp: if the dataset shrank (deletes by us or others) and the
+      // requested page no longer exists, fall back to the last valid page.
+      const maxPage = Math.max(1, Math.ceil(res.total / PAGE_SIZE));
+      if (res.documents.length === 0 && res.total > 0 && p > maxPage) {
+        setLoading(false);
+        return load(maxPage);
+      }
+      setPage(res.page);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load documents");
     } finally {
@@ -936,12 +1053,23 @@ function DocumentsPanel({
                     deleting={deleting}
                     downloadingVersionId={downloadingVersionId}
                     onDownloadVersion={(vid, name) => downloadVersion(doc.documentId, vid, name)}
+                    onShowDetail={setDetailVersion}
                   />
                 ))}
               </tbody>
             </table>
           )}
         </div>
+
+        {detailVersion && (
+          <FailureDetailDialog
+            open
+            versionId={detailVersion.versionId}
+            status={detailVersion.status}
+            reason={detailVersion.quarantineReason}
+            onClose={() => setDetailVersion(null)}
+          />
+        )}
 
         {total > PAGE_SIZE && (
           <div className="flex items-center justify-between border-t border-zinc-200/70 px-5 py-3 dark:border-zinc-800/70">
@@ -989,6 +1117,7 @@ function DocumentRow({
   deleting,
   downloadingVersionId,
   onDownloadVersion,
+  onShowDetail,
 }: {
   doc: DocRow;
   expanded: boolean;
@@ -1004,6 +1133,7 @@ function DocumentRow({
   deleting: boolean;
   downloadingVersionId: string | null;
   onDownloadVersion: (vid: string, filename: string) => void;
+  onShowDetail: (v: DocVersion) => void;
 }) {
   return (
     <>
@@ -1066,11 +1196,19 @@ function DocumentRow({
                           ? "bg-emerald-500"
                           : v.status === "uploaded"
                             ? "bg-sky-500"
-                            : v.status === "processing" || v.status === "ingesting"
+                          : v.status === "security_pending"
+                            ? "bg-sky-500"
+                          : v.status === "security_running"
+                            ? "bg-violet-500"
+                          : v.status === "security_failed"
+                            ? "bg-red-500"
+                          : v.status === "processing" || v.status === "ingesting"
                               ? "bg-violet-500"
-                              : v.status === "pending"
-                                ? "bg-amber-400"
-                                : "bg-zinc-300 dark:bg-zinc-600"
+                          : v.status === "pending"
+                            ? "bg-amber-400"
+                          : v.status === "quarantined"
+                            ? "bg-red-500"
+                            : "bg-zinc-300 dark:bg-zinc-600"
                       }`}
                     />
                     <div className="min-w-0 flex-1">
@@ -1086,23 +1224,32 @@ function DocumentRow({
                         <Badge className={(
                           v.status === "available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300" :
                           v.status === "uploaded" ? "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300" :
+                          v.status === "security_pending" ? "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300" :
+                          v.status === "security_running" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300" :
+                          v.status === "security_failed" ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300" :
                           v.status === "processing" || v.status === "ingesting" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300" :
                           v.status === "pending" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" :
+                          v.status === "quarantined" ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300" :
                           "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"
                         )}>
                           {v.status === "available" ? "Ready" :
                            v.status === "uploaded" ? "Uploaded" :
+                           v.status === "security_pending" ? "Security Pending" :
+                           v.status === "security_running" ? "Security Running" :
+                           v.status === "security_failed" ? "Security Failed" :
                            v.status === "processing" ? "Processing" :
                            v.status === "ingesting" ? "Ingesting" :
-                           v.status === "pending" ? "Uploading" : "Aborted"}
+                           v.status === "pending" ? "Uploading" :
+                           v.status === "processing_failed" ? "Processing Failed" :
+                           v.status === "quarantined" ? "Quarantined" : "Aborted"}
                         </Badge>
                       </p>
                       <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                         {v.uploadedByName ?? "Unknown"} · {new Date(v.createdAt).toLocaleString()}
-                        {v.fileSize !== null && ` · ${(v.fileSize / 1024).toFixed(0)} KB`}
+                        {v.fileSize !== null && ` · ${formatFileSize(v.fileSize)}`}
                       </p>
                     </div>
-                    {(v.status === "available" || v.status === "uploaded") && (
+                    {(v.status === "available" || v.status === "uploaded" || v.status === "security_pending" || v.status === "security_running") && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1114,6 +1261,17 @@ function DocumentRow({
                         {downloadingVersionId === v.versionId
                           ? <Loader2 className="size-3.5 animate-spin" />
                           : <Download className="size-3.5" />}
+                      </Button>
+                    )}
+                    {hasErrorDetail(v.status) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-red-400 hover:text-red-600 dark:hover:text-red-300 cursor-pointer"
+                        aria-label="Security check details"
+                        onClick={() => onShowDetail(v)}
+                      >
+                        <Info className="size-3.5" />
                       </Button>
                     )}
                     {confirmVersionId === v.versionId ? (

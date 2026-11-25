@@ -16,6 +16,8 @@ from document_service.security.validators.office import OfficeSecurityCheck
 from document_service.security.validators.ole import OLESecurityCheck
 from document_service.security.validators.csv import CsvSecurityCheck
 from document_service.security.validators.text import TextSecurityCheck
+from document_service.security.validators.html import HtmlSecurityCheck
+from document_service.security.validators.png import PngSecurityCheck
 from document_service.security.scanners.antivirus import (
     ClamAVScanner,
     AntivirusStatus,
@@ -51,6 +53,12 @@ VALIDATOR_MAP = {
     # Plain text / Markdown
     "text/plain": TextSecurityCheck,
     "text/markdown": TextSecurityCheck,
+
+    # HTML (static content; active content rejected by policy)
+    "text/html": HtmlSecurityCheck,
+
+    # Images
+    "image/png": PngSecurityCheck,
 }
 
 
@@ -186,7 +194,7 @@ class DocumentSecurityOrchestrator:
             validation_result = validator.check(
                 file_path=str(path),
                 mime_type=mime_type,
-                filename=filename,
+                file_size=path.stat().st_size,
             )
         except Exception:
             logger.exception(
@@ -203,16 +211,16 @@ class DocumentSecurityOrchestrator:
             )
 
         checks["format_validation"] = (
-            validation_result.status == SecurityCheckResult.PASS
+            validation_result.result == SecurityCheckResult.PASS
         )
 
         details["format_validation"] = getattr(
             validation_result, "details", {}
         )
 
-        if validation_result.status != SecurityCheckResult.PASS:
+        if validation_result.result != SecurityCheckResult.PASS:
             return self._report(
-                validation_result.status,
+                validation_result.result,
                 getattr(
                     validation_result,
                     "reason",
@@ -244,7 +252,9 @@ class DocumentSecurityOrchestrator:
 
             else:
                 try:
+                    logger.info(f"Starting antivirus scan for file: {path} (exists: {path.exists()})")
                     av_result = self.antivirus_scanner.scan(str(path))
+                    logger.info(f"Antivirus result: {av_result}")
 
                 except Exception:
                     logger.exception(
@@ -264,7 +274,7 @@ class DocumentSecurityOrchestrator:
 
                 details["antivirus"] = {
                     "status": av_result.status.value,
-                    "message": av_result.message,
+                    "message": av_result.reason,
                     "signature_version": getattr(
                         av_result, "signature_version", None
                     ),
@@ -344,7 +354,7 @@ class DocumentSecurityOrchestrator:
         uses a slightly different schema.
         """
         return SecurityReport(
-            status=status,
+            result=status,
             reason=reason,
             checks=checks,
             details=details,

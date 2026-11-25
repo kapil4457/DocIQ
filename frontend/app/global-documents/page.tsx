@@ -16,6 +16,8 @@ import {
   Download,
   Trash2,
   Pencil,
+  ShieldAlert,
+  Info,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -39,11 +41,12 @@ const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
 interface DocVersion {
   versionId: string;
-  status: "pending" | "uploaded" | "processing" | "ingesting" | "available" | "aborted";
+  status: "pending" | "uploaded" | "security_pending" | "security_running" | "security_failed" | "processing" | "ingesting" | "processing_failed" | "available" | "aborted" | "quarantined";
   isActive: boolean;
   uploadedByName: string | null;
   fileSize: number | null;
   createdAt: string;
+  quarantineReason?: string | null;
 }
 
 interface DocRow {
@@ -64,22 +67,43 @@ interface GlobalDocumentsResponse {
 
 const PAGE_SIZE = 8;
 
+/** Human-readable file size: B / KB / MB / GB with sensible precision. */
+function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb >= 100 ? kb.toFixed(0) : kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb >= 100 ? mb.toFixed(0) : mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
+
 function statusBadge(status: DocVersion["status"]) {
   const map: Record<DocVersion["status"], string> = {
     available: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
     uploaded: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
+    security_pending: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
+    security_running: "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300",
+    security_failed: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
     processing: "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300",
     ingesting: "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300",
+    processing_failed: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
     pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
     aborted: "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300",
+    quarantined: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
   };
   const label: Record<DocVersion["status"], string> = {
     available: "Ready",
     uploaded: "Uploaded",
+    security_pending: "Security Pending",
+    security_running: "Security Running",
+    security_failed: "Security Failed",
     processing: "Processing",
     ingesting: "Ingesting",
+    processing_failed: "Processing Failed",
     pending: "Uploading",
     aborted: "Aborted",
+    quarantined: "Quarantined",
   };
   return (
     <Badge className={map[status]}>
@@ -92,12 +116,96 @@ function statusDot(status: DocVersion["status"]) {
   const map: Record<DocVersion["status"], string> = {
     available: "bg-emerald-500",
     uploaded: "bg-sky-500",
+    security_pending: "bg-sky-500",
+    security_running: "bg-violet-500",
+    security_failed: "bg-red-500",
     processing: "bg-violet-500",
     ingesting: "bg-violet-500",
+    processing_failed: "bg-red-500",
     pending: "bg-amber-400",
     aborted: "bg-zinc-300 dark:bg-zinc-600",
+    quarantined: "bg-red-500",
   };
   return <span className={`absolute -left-[21px] size-2.5 rounded-full border-2 border-zinc-50 dark:border-zinc-900 ${map[status]}`} />;
+}
+
+function hasErrorDetail(status: DocVersion["status"]) {
+  return status === "security_failed" || status === "quarantined" || status === "processing_failed" || status === "aborted";
+}
+
+/** Split a stored failure reason into readable, formatted lines. */
+function formatFailureReason(reason: string): { title: string; details: string[] } {
+  // Worker format: "<Reason> (failed: check1, check2)"
+  const match = reason.match(/^(.*?)\s*\(failed:\s*([\s\S]+)\)\s*$/);
+  if (match) {
+    const checks = match[2].split(",").map((c) => c.trim()).filter(Boolean);
+    return { title: match[1].trim(), details: checks.map((c) => `Failed check: ${c}`) };
+  }
+  // Semicolon-joined details ("k: v; k2: v2")
+  if (reason.includes("; ")) {
+    const [first, ...rest] = reason.split("; ");
+    return { title: first.trim(), details: rest.map((r) => r.trim()) };
+  }
+  return { title: reason.trim(), details: [] };
+}
+
+function FailureDetailDialog({
+  open,
+  versionId,
+  status,
+  reason,
+  onClose,
+}: {
+  open: boolean;
+  versionId: string;
+  status: DocVersion["status"];
+  reason: string | null | undefined;
+  onClose: () => void;
+}) {
+  const { title, details } = formatFailureReason(reason || "No failure details were recorded for this version.");
+  const isInfected = /malware|antivirus/i.test(title);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <ShieldAlert className="size-5 text-red-600 dark:text-red-400" />
+          Security check details
+        </DialogTitle>
+        <DialogDescription>
+          Version {versionId.slice(0, 8)} · {statusBadge(status)}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogClose onClose={onClose} />
+      <div className="space-y-4">
+        <div className="rounded-xl border border-red-200 bg-red-50/60 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-red-500 dark:text-red-400">
+            {isInfected ? "Threat detected" : "Failure reason"}
+          </p>
+          <p className="mt-1.5 text-sm font-medium text-red-800 dark:text-red-200">{title}</p>
+        </div>
+        {details.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Details</p>
+            <ul className="space-y-1">
+              {details.map((d, i) => (
+                <li key={i} className="flex items-start gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
+                  <span className="mt-1 size-1.5 shrink-0 rounded-full bg-zinc-400" />
+                  <span className="font-mono">{d}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="rounded-lg bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 dark:bg-zinc-800/40 dark:text-zinc-400">
+          This file was not promoted to your knowledge base. Upload a corrected version as a new version of this document.
+        </div>
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Dialog>
+  );
 }
 
 function DeleteDialog({
@@ -122,8 +230,14 @@ function DeleteDialog({
     try {
       await apiFetch(`/document/${documentId}`, { method: "DELETE" });
       onDeleted();
+      onClose(); // Ensure dialog closes on success
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete document");
+      const msg = err instanceof Error ? err.message : "Failed to delete document";
+      setError(msg);
+      // Auto-close on "not found" errors to prevent stuck dialogs
+      if (msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("404")) {
+        onClose();
+      }
     } finally {
       setDeleting(false);
     }
@@ -174,8 +288,14 @@ function DeleteVersionDialog({
     try {
       await apiFetch(`/document/${documentId}/versions/${versionId}`, { method: "DELETE" });
       onDeleted();
+      onClose(); // Ensure dialog closes on success
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete version");
+      const msg = err instanceof Error ? err.message : "Failed to delete version";
+      setError(msg);
+      // Auto-close on "not found" errors to prevent stuck dialogs
+      if (msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("404")) {
+        onClose();
+      }
     } finally {
       setDeleting(false);
     }
@@ -257,7 +377,7 @@ function GlobalUploadDialog({
   const [customName, setCustomName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string }[]>([]);
+  const [existingDocs, setExistingDocs] = useState<{ documentId: string; name: string; mediaTypes: string[] }[]>([]);
   const [versionOf, setVersionOf] = useState<string>("new");
   const keyTracker = useRef(createUploadKeyTracker());
   const { success, error: toastError } = useToastHelpers();
@@ -269,12 +389,19 @@ function GlobalUploadDialog({
     setError(null);
     setVersionOf("new");
     keyTracker.current.reset();
-    apiFetch<{ documents: { documentId: string; name: string }[] }>(
+    apiFetch<{ documents: { documentId: string; name: string; mediaTypes: string[] }[] }>(
       `/document/global?page=1&pageSize=100`
     )
       .then((res) => setExistingDocs(res.documents))
       .catch(() => setExistingDocs([]));
   }, [open]);
+
+  // Versions of one document must share a media type; only offer
+  // same-type documents in the "new version of" dropdown.
+  const selectedType = file ? mediaTypeFor(file.name) : null;
+  const compatibleDocs = selectedType
+    ? existingDocs.filter((d) => d.mediaTypes.length === 0 || d.mediaTypes.includes(selectedType))
+    : existingDocs;
 
   const handleUpload = async () => {
     if (!file) return;
@@ -336,7 +463,10 @@ function GlobalUploadDialog({
             type="file"
             className="sr-only"
             accept=".pdf,.docx,.txt,.md,.png,.html,.csv"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setVersionOf("new"); // re-filter version targets for the new file's type
+            }}
           />
           <FileText className="size-6 text-zinc-400" />
           {file ? (
@@ -359,12 +489,17 @@ function GlobalUploadDialog({
             className="flex h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/15 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-50 cursor-pointer"
           >
             <option value="new">New document</option>
-            {existingDocs.map((d) => (
+            {compatibleDocs.map((d) => (
               <option key={d.documentId} value={d.documentId}>
                 New version of: {d.name}
               </option>
             ))}
           </select>
+          {file && versionOf !== "new" && (
+            <p className="text-xs text-zinc-400">
+              Showing only documents of the same type ({selectedType}) — versions must match the document's type.
+            </p>
+          )}
         </div>
         {versionOf === "new" && (
           <div className="space-y-1.5">
@@ -402,9 +537,12 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDocId, setConfirmDocId] = useState<string | null>(null);
-  const [confirmVersionId, setConfirmVersionId] = useState<string | null>(null);
+  // Version deletes track their parent document too - confirmVersionId alone
+  // is not enough to build the DELETE URL.
+  const [confirmVersion, setConfirmVersion] = useState<{ documentId: string; versionId: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [detailVersion, setDetailVersion] = useState<{ v: DocVersion; docName: string } | null>(null);
 
   const load = useCallback(async (p: number) => {
     setLoading(true);
@@ -415,6 +553,13 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
       );
       setDocs(res.documents);
       setTotal(res.total);
+      // Clamp: if the dataset shrank (deletes by us or others) and the
+      // requested page no longer exists, fall back to the last valid page.
+      const maxPage = Math.max(1, Math.ceil(res.total / PAGE_SIZE));
+      if (res.documents.length === 0 && res.total > 0 && p > maxPage) {
+        setLoading(false);
+        return load(maxPage);
+      }
       setPage(res.page);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load documents");
@@ -440,17 +585,17 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
   }, [confirmDocId, page, load]);
 
   const onDeleteVersion = useCallback(() => {
-    if (!confirmDocId || !confirmVersionId) return;
+    if (!confirmVersion) return;
     setDeleting(true);
-    apiFetch(`/document/${confirmDocId}/versions/${confirmVersionId}`, { method: "DELETE" })
+    apiFetch(`/document/${confirmVersion.documentId}/versions/${confirmVersion.versionId}`, { method: "DELETE" })
       .then(() => {
         setConfirmDocId(null);
-        setConfirmVersionId(null);
+        setConfirmVersion(null);
         load(page);
       })
       .catch((err) => alert(err instanceof Error ? err.message : "Delete failed"))
       .finally(() => setDeleting(false));
-  }, [confirmDocId, confirmVersionId, page, load]);
+  }, [confirmVersion, page, load]);
 
   const handleUploaded = useCallback(() => {
     load(page);
@@ -573,10 +718,10 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                                   </p>
                                   <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                                     {v.uploadedByName ?? "Unknown"} · {new Date(v.createdAt).toLocaleString()}
-                                    {v.fileSize !== null && ` · ${(v.fileSize / 1024).toFixed(0)} KB`}
+                                    {v.fileSize !== null && ` · ${formatFileSize(v.fileSize)}`}
                                   </p>
                                 </div>
-                                {v.status === "available" || v.status === "uploaded" && (
+                                {(v.status === "available" || v.status === "uploaded" || v.status === "security_pending" || v.status === "security_running") && (
                                   <DownloadButton
                                     documentId={doc.documentId}
                                     versionId={v.versionId}
@@ -584,7 +729,18 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                                     disabled={deleting}
                                   />
                                 )}
-                                {confirmVersionId === v.versionId ? (
+                                {hasErrorDetail(v.status) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-7 text-red-400 hover:text-red-600 dark:hover:text-red-300 cursor-pointer"
+                                    onClick={() => setDetailVersion({ v, docName: doc.name })}
+                                    aria-label="Security check details"
+                                  >
+                                    <Info className="size-3.5" />
+                                  </Button>
+                                )}
+                                {confirmVersion?.versionId === v.versionId ? (
                                   <span className="inline-flex items-center gap-1">
                                     <Button
                                       variant="destructive"
@@ -595,7 +751,7 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                                       {deleting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                                       Sure?
                                     </Button>
-                                    <Button variant="ghost" size="sm" onClick={() => setConfirmVersionId(null)}>
+                                    <Button variant="ghost" size="sm" onClick={() => setConfirmVersion(null)}>
                                       Cancel
                                     </Button>
                                   </span>
@@ -604,7 +760,7 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                                     variant="ghost"
                                     size="icon"
                                     className="size-7 text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
-                                    onClick={() => setConfirmVersionId(v.versionId)}
+                                    onClick={() => setConfirmVersion({ documentId: doc.documentId, versionId: v.versionId })}
                                     disabled={deleting}
                                     aria-label="Delete this version"
                                   >
@@ -662,13 +818,13 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
           onDeleted={() => load(page)}
         />
       )}
-      {confirmVersionId && (
+      {confirmVersion && (
         <DeleteVersionDialog
           open
-          documentId={confirmDocId!}
-          versionId={confirmVersionId}
-          docName={docs.find((d) => d.documentId === confirmDocId)?.name ?? ""}
-          onClose={() => setConfirmVersionId(null)}
+          documentId={confirmVersion.documentId}
+          versionId={confirmVersion.versionId}
+          docName={docs.find((d) => d.documentId === confirmVersion.documentId)?.name ?? ""}
+          onClose={() => setConfirmVersion(null)}
           onDeleted={() => load(page)}
         />
       )}
@@ -677,6 +833,15 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
           open={uploadOpen}
           onClose={() => setUploadOpen(false)}
           onUploaded={handleUploaded}
+        />
+      )}
+      {detailVersion && (
+        <FailureDetailDialog
+          open
+          versionId={detailVersion.v.versionId}
+          status={detailVersion.v.status}
+          reason={detailVersion.v.quarantineReason}
+          onClose={() => setDetailVersion(null)}
         />
       )}
     </div>

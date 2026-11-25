@@ -18,8 +18,11 @@ class MediaType(str, Enum):
 class DocumentVersionStatus(str, Enum):
     PENDING = "pending"
     UPLOADED = "uploaded"
-    PROCESSING = "processing"
+    SECURITY_PENDING = "security_pending"
+    SECURITY_RUNNING = "security_running"
+    SECURITY_FAILED = "security_failed"
     INGESTING = "ingesting"
+    PROCESSING_FAILED = "processing_failed"
     AVAILABLE = "available"
     QUARANTINED = "quarantined"
     ABORTED = "aborted"

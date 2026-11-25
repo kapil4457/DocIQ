@@ -21,6 +21,8 @@ MIME_EXTENSIONS = {
     "text/csv": {".csv"},
     "text/plain": {".txt"},
     "text/markdown": {".md", ".markdown"},
+    "text/html": {".html", ".htm"},
+    "image/png": {".png"},
 }
 
 

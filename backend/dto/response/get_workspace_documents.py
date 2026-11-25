@@ -11,6 +11,7 @@ class WorkspaceDocumentVersion(BaseModel):
     uploadedByName: Optional[str] = Field(None, description="Name of the uploader")
     fileSize: Optional[int] = Field(None, description="Size in bytes")
     createdAt: datetime = Field(..., description="Upload timestamp")
+    quarantineReason: Optional[str] = Field(None, description="Failure reason when status is security_failed, quarantined or processing_failed")
 
 
 class WorkspaceDocumentRow(BaseModel):
@@ -19,6 +20,7 @@ class WorkspaceDocumentRow(BaseModel):
     uploadedByName: Optional[str] = Field(None, description="Name of the original uploader")
     createdAt: datetime = Field(..., description="When the document was first added")
     versionCount: int = Field(..., description="Number of versions in the trail")
+    mediaTypes: list[str] = Field(default_factory=list, description="Distinct media types across versions")
     versions: list[WorkspaceDocumentVersion] = Field(..., description="Full version trail, newest first")
 
 
