@@ -9,6 +9,7 @@ class WorkspaceDocumentVersion(BaseModel):
     status: str = Field(..., description="pending, available or aborted")
     isActive: bool = Field(False, description="True for the most recent available version")
     uploadedByName: Optional[str] = Field(None, description="Name of the uploader")
+    uploadedById: Optional[str] = Field(None, description="ID of the uploader")
     fileSize: Optional[int] = Field(None, description="Size in bytes")
     createdAt: datetime = Field(..., description="Upload timestamp")
     quarantineReason: Optional[str] = Field(None, description="Failure reason when status is security_failed, quarantined or processing_failed")

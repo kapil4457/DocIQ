@@ -647,6 +647,7 @@ def get_workspace_documents_handler(
                 "status": v.status.value if isinstance(v.status, DocumentVersionStatus) else v.status,
                 "isActive": v.versionId == active_version_id,
                 "uploadedByName": uploader_name,
+                "uploadedById": str(v.createdBy) if v.createdBy else None,
                 "fileSize": v.fileSize,
                 "createdAt": v.createdAt,
                 "quarantineReason": v.quarantine_reason,
@@ -764,6 +765,7 @@ def get_organization_documents_handler(
                     "status": v.status.value if isinstance(v.status, DocumentVersionStatus) else v.status,
                     "isActive": v.versionId == active_version_id,
                     "uploadedByName": uploader_name,
+                    "uploadedById": str(v.createdBy) if v.createdBy else None,
                     "fileSize": v.fileSize,
                     "createdAt": v.createdAt,
                     "quarantineReason": v.quarantine_reason,
@@ -897,6 +899,8 @@ def get_document_version_download_handler(
         userId=str(current_user.id),
     )
 
+    is_org_admin = current_user.role == UserRole.ORG_ADMIN
+
     if document.scope == DocumentScope.WORKSPACE:
         from database.models.workspace import Workspace as WorkspaceModel
         from services.workspace_service import assert_workspace_access as _assert_ws_access
@@ -906,27 +910,55 @@ def get_document_version_download_handler(
         )
         _assert_ws_access(db, workspace, current_user)
 
-    version = db.get(DocumentVersion, version_id)
+        version = db.get(DocumentVersion, version_id)
+        if version is None or version.documentId != document_id:
+            raise NotFoundError("Version not found for this document")
+
+        # Workspace download privileges before AVAILABLE:
+        #   - an organization admin that is a member of this workspace
+        #   - the workspace creator (owner)
+        #   - the uploader of this version (document admin/uploader)
+        is_org_admin_member = is_org_admin and _is_workspace_member(db, workspace, current_user)
+        is_ws_creator = workspace.userId == current_user.id
+        is_uploader = version.createdBy == current_user.id
+        privileged = is_org_admin_member or is_ws_creator or is_uploader
+    else:
+        version = db.get(DocumentVersion, version_id)
+        if version is None or version.documentId != document_id:
+            raise NotFoundError("Version not found for this document")
+
+        # Global download privileges before AVAILABLE: the organization admin.
+        # (Only org admins can upload global docs, so the uploader of a global
+        # doc is always the org admin anyway.)
+        privileged = is_org_admin
+
     if version is None or version.documentId != document_id:
         raise NotFoundError("Version not found for this document")
 
-    # Allow org_participant and org_super_admin to download global documents
-    if document.scope == DocumentScope.GLOBAL:
+    if version.status == DocumentVersionStatus.AVAILABLE:
+        # Ready for everyone who can see the document. Role gate for global
+        # docs: org admin/super admin/participant may download; super admins
+        # and outsiders already blocked above.
+        if document.scope == DocumentScope.GLOBAL:
+            forbid(
+                current_user.role not in (UserRole.ORG_ADMIN, UserRole.ORG_SUPER_ADMIN, UserRole.PARTICIPANT),
+                "Not authorized to download this document",
+                logger,
+                userId=str(current_user.id),
+                role=current_user.role.value,
+            )
+    else:
+        # Not yet AVAILABLE (in-flight, failed, quarantined): only privileged
+        # users may download. Uploaders of failed versions can grab their own
+        # file to inspect what went wrong; org admins can audit any stage.
         forbid(
-            current_user.role not in (UserRole.ORG_ADMIN, UserRole.ORG_SUPER_ADMIN, UserRole.PARTICIPANT),
-            "Not authorized to download this document",
+            not privileged,
+            f"This version is {version.status.value} and is not yet available for download",
             logger,
             userId=str(current_user.id),
             role=current_user.role.value,
+            status=version.status.value,
         )
-
-    conflict(
-        version.status not in (DocumentVersionStatus.AVAILABLE, DocumentVersionStatus.UPLOADED),
-        f"This version is {version.status.value} and cannot be downloaded",
-        logger,
-        versionId=version_id,
-        status=version.status.value,
-    )
 
     filename = document.document_name
     if document.scope == DocumentScope.WORKSPACE:
@@ -942,8 +974,23 @@ def get_document_version_download_handler(
         documentId=document_id,
         versionId=version_id,
         userId=str(current_user.id),
+        status=version.status.value,
+        privileged=privileged,
     )
     return {"url": url, "filename": filename}
+
+
+def _is_workspace_member(db: Session, workspace, user) -> bool:
+    from database.models.workspace import WorkspaceMember
+
+    if workspace.userId == user.id:
+        return True
+    return bool(db.scalar(
+        select(func.count()).select_from(WorkspaceMember).where(
+            WorkspaceMember.workspaceId == workspace.id,
+            WorkspaceMember.userId == user.id,
+        )
+    ))
 
 
 def get_processable_document_versions(

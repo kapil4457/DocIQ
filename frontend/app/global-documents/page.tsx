@@ -44,6 +44,7 @@ interface DocVersion {
   status: "pending" | "uploaded" | "security_pending" | "security_running" | "security_failed" | "processing" | "ingesting" | "processing_failed" | "available" | "aborted" | "quarantined";
   isActive: boolean;
   uploadedByName: string | null;
+  uploadedById?: string | null;
   fileSize: number | null;
   createdAt: string;
   quarantineReason?: string | null;
@@ -131,6 +132,24 @@ function statusDot(status: DocVersion["status"]) {
 
 function hasErrorDetail(status: DocVersion["status"]) {
   return status === "security_failed" || status === "quarantined" || status === "processing_failed" || status === "aborted";
+}
+
+/**
+ * Mirrors the backend download rules:
+ *  - AVAILABLE: anyone who can see the document (org admin / org super admin / participant)
+ *  - Any other stage: only the uploader or the organization admin.
+ * `isOrgAdminInScope`: for global docs = user is org_admin; for workspace docs =
+ * user is org admin/super admin AND member of that workspace, or the workspace owner.
+ */
+export function canDownloadVersion(
+  status: DocVersion["status"],
+  uploadedById: string | null | undefined,
+  currentUserId: string | undefined,
+  isOrgAdminInScope: boolean
+): boolean {
+  if (status === "available") return true;
+  if (!currentUserId) return false;
+  return isOrgAdminInScope || uploadedById === currentUserId;
 }
 
 /** Split a stored failure reason into readable, formatted lines. */
@@ -529,7 +548,7 @@ function GlobalUploadDialog({
   );
 }
 
-function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
+function GlobalDocumentsPanel({ isAdmin, currentUserId }: { isAdmin: boolean; currentUserId?: string }) {
   const [docs, setDocs] = useState<DocRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -721,7 +740,7 @@ function GlobalDocumentsPanel({ isAdmin }: { isAdmin: boolean }) {
                                     {v.fileSize !== null && ` · ${formatFileSize(v.fileSize)}`}
                                   </p>
                                 </div>
-                                {(v.status === "available" || v.status === "uploaded" || v.status === "security_pending" || v.status === "security_running") && (
+                                {canDownloadVersion(v.status, v.uploadedById, currentUserId, isAdmin) && (
                                   <DownloadButton
                                     documentId={doc.documentId}
                                     versionId={v.versionId}
@@ -874,7 +893,7 @@ export default function GlobalDocumentsPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 animate-in fade-in duration-300">
-      <GlobalDocumentsPanel isAdmin={isAdmin} />
+      <GlobalDocumentsPanel isAdmin={isAdmin} currentUserId={user.userId} />
     </div>
   );
 }

@@ -307,6 +307,8 @@ function WorkspaceInner({ params }: { params: Promise<{ id: string }> }) {
       <DocumentsPanel
         open={docsOpen}
         workspaceId={workspace.id}
+        currentUserId={user?.userId}
+        privileged={isCreator || user?.role === "org_admin"}
         onClose={() => setDocsOpen(false)}
         onChanged={() => loadWorkspace()}
         onCountChange={setDocCount}
@@ -773,6 +775,7 @@ interface DocVersion {
   status: "pending" | "uploaded" | "security_pending" | "security_running" | "security_failed" | "processing" | "ingesting" | "processing_failed" | "available" | "aborted" | "quarantined";
   isActive: boolean;
   uploadedByName: string | null;
+  uploadedById?: string | null;
   fileSize: number | null;
   createdAt: string;
   quarantineReason?: string | null;
@@ -881,15 +884,37 @@ function formatFileSize(bytes: number | null | undefined): string {
   return `${(mb / 1024).toFixed(1)} GB`;
 }
 
+/**
+ * Mirrors the backend download rules:
+ *  - AVAILABLE: anyone who can see the document
+ *  - Any other stage: workspace creator, org admin (member), or the
+ *    uploader of that specific version (uploadedById === currentUserId).
+ */
+function canDownloadVersion(
+  status: DocVersion["status"],
+  uploadedById: string | null | undefined,
+  currentUserId: string | undefined,
+  privileged: boolean
+): boolean {
+  if (status === "available") return true;
+  if (!currentUserId) return false;
+  return privileged || uploadedById === currentUserId;
+}
+
 function DocumentsPanel({
   open,
   workspaceId,
+  currentUserId,
+  privileged,
   onClose,
   onChanged,
   onCountChange,
 }: {
   open: boolean;
   workspaceId: string;
+  currentUserId?: string;
+  /** Workspace creator or org admin (member) - may download at any stage. */
+  privileged: boolean;
   onClose: () => void;
   onChanged: () => void;
   onCountChange: (count: number) => void;
@@ -1054,6 +1079,8 @@ function DocumentsPanel({
                     downloadingVersionId={downloadingVersionId}
                     onDownloadVersion={(vid, name) => downloadVersion(doc.documentId, vid, name)}
                     onShowDetail={setDetailVersion}
+                    currentUserId={currentUserId}
+                    privileged={privileged}
                   />
                 ))}
               </tbody>
@@ -1118,6 +1145,8 @@ function DocumentRow({
   downloadingVersionId,
   onDownloadVersion,
   onShowDetail,
+  currentUserId,
+  privileged,
 }: {
   doc: DocRow;
   expanded: boolean;
@@ -1134,6 +1163,8 @@ function DocumentRow({
   downloadingVersionId: string | null;
   onDownloadVersion: (vid: string, filename: string) => void;
   onShowDetail: (v: DocVersion) => void;
+  currentUserId?: string;
+  privileged: boolean;
 }) {
   return (
     <>
@@ -1249,7 +1280,7 @@ function DocumentRow({
                         {v.fileSize !== null && ` · ${formatFileSize(v.fileSize)}`}
                       </p>
                     </div>
-                    {(v.status === "available" || v.status === "uploaded" || v.status === "security_pending" || v.status === "security_running") && (
+                    {(v.status === "available" || canDownloadVersion(v.status, v.uploadedById, currentUserId, privileged)) && (
                       <Button
                         variant="ghost"
                         size="icon"
