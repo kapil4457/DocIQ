@@ -320,12 +320,12 @@ def move_object(source_key: str, destination_key: str) -> None:
 def get_storage_folder(status: str) -> str:
     """Map document version status to storage folder."""
     mapping = {
-        "pending": "unprocessed",
-        "uploaded": "unprocessed",
+        "pending": "pending",       # Temporary uploads in progress
+        "uploaded": "unprocessed",  # Upload complete, awaiting security scan
         "processing": "unprocessed",
         "ingesting": "unprocessed",
-        "available": "safe",
-        "quarantined": "quarantined",
+        "available": "safe",        # Security passed, ready for use
+        "quarantined": "quarantined",  # Security failed
         "aborted": "unprocessed",
     }
     return mapping.get(status, "unprocessed")

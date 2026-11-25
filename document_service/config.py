@@ -5,6 +5,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
+# Get the directory where this config.py file is located
+CONFIG_DIR = Path(__file__).parent
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -12,7 +15,7 @@ class Settings(BaseSettings):
     # Database
     database_url: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/dociq"
+        "postgresql+psycopg2://postgres@localhost:5433/dociq"
     )
 
     # Database pool settings
@@ -39,7 +42,7 @@ class Settings(BaseSettings):
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
     class Config:
-        env_file = ".env"
+        env_file = CONFIG_DIR / ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
 

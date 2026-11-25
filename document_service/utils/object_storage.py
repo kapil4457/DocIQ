@@ -5,7 +5,7 @@ import logging
 import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
-from config import get_settings
+from document_service.config import get_settings
 
 logger = logging.getLogger("document-service.object-storage")
 settings = get_settings()
@@ -37,6 +37,46 @@ s3_client = boto3.client(
     region_name=REGION,
     config=Config(signature_version="s3v4"),
 )
+
+
+def get_storage_folder(status: str) -> str:
+    """Map document version status to storage folder."""
+    mapping = {
+        "pending": "pending",       # Temporary uploads in progress
+        "uploaded": "unprocessed",  # Upload complete, awaiting security scan
+        "processing": "unprocessed",
+        "ingesting": "unprocessed",
+        "available": "safe",        # Security passed, ready for use
+        "quarantined": "quarantined",  # Security failed
+        "aborted": "unprocessed",
+    }
+    return mapping.get(status, "unprocessed")
+
+
+def build_object_key(org_id: str, document_id: str, version_id: str, status: str) -> str:
+    """Build object key with status-based folder prefix."""
+    folder = get_storage_folder(status)
+    return f"{folder}/{org_id}/{document_id}/{version_id}"
+
+
+def move_object(source_key: str, destination_key: str) -> None:
+    """Move an object from source_key to destination_key via copy + delete.
+    R2 doesn't have a native move, so we copy then delete source."""
+    try:
+        copy_source = {"Bucket": BUCKET_NAME, "Key": source_key}
+        s3_client.copy(copy_source, BUCKET_NAME, destination_key)
+        s3_client.delete_object(Bucket=BUCKET_NAME, Key=source_key)
+        logger.info(
+            "Object moved",
+            extra={"extra_data": {"sourceKey": source_key, "destinationKey": destination_key}},
+        )
+    except ClientError:
+        logger.error(
+            "Failed to move object",
+            extra={"extra_data": {"sourceKey": source_key, "destinationKey": destination_key}},
+            exc_info=True,
+        )
+        raise
 
 
 def download_url(object_key: str, filename: str) -> str:

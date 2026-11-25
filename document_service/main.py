@@ -13,9 +13,9 @@ import uuid
 from datetime import datetime, timezone
 from contextlib import contextmanager
 
-from config import get_settings
-from database import init_db, get_db_sync
-from models import DocumentVersion, DocumentVersionStatus
+from document_service.config import get_settings
+from document_service.database import init_db, get_db_sync
+from document_service.models import DocumentVersion, DocumentVersionStatus
 from document_service.security import DocumentSecurityOrchestrator, SecurityConfig, SecurityCheckResult
 from document_service.security.scanners.antivirus import ClamAVScanner
 
@@ -40,10 +40,19 @@ def get_db_session():
 
 
 def fetch_pending_versions(limit: int = 10) -> list:
-    """Fetch document versions with PENDING status, oldest first."""
+    """Fetch document versions with UPLOADED status (ready for security checks), oldest first.
+
+    After user completes upload via backend API, status becomes UPLOADED.
+    This worker picks up UPLOADED documents for security validation.
+    """
     with get_db_session() as db:
-        versions = db.query(DocumentVersion).filter(
-            DocumentVersion.status == DocumentVersionStatus.PENDING
+        from document_service.models import Document, DocumentScope
+        versions = db.query(DocumentVersion).join(
+            Document, Document.id == DocumentVersion.documentId
+        ).filter(
+            DocumentVersion.status == DocumentVersionStatus.UPLOADED,
+            # Process both GLOBAL and WORKSPACE documents
+            Document.scope.in_([DocumentScope.GLOBAL, DocumentScope.WORKSPACE])
         ).order_by(DocumentVersion.createdAt.asc()).limit(limit).all()
 
         # Detach from session
@@ -54,7 +63,7 @@ def fetch_pending_versions(limit: int = 10) -> list:
 
 def update_version_status(version_id: uuid.UUID, status: DocumentVersionStatus,
                           quarantine_reason: str | None = None) -> bool:
-    """Update document version status."""
+    """Update document version status and move object in R2 if needed."""
     try:
         with get_db_session() as db:
             version = db.query(DocumentVersion).filter(
@@ -64,10 +73,34 @@ def update_version_status(version_id: uuid.UUID, status: DocumentVersionStatus,
                 logger.warning(f"Version {version_id} not found")
                 return False
 
+            old_status = version.status
+            old_key = version.objectKey
+
             version.status = status
             version.modifiedAt = datetime.now(timezone.utc)
             if quarantine_reason:
                 version.quarantine_reason = quarantine_reason
+
+            # Move object in R2 if status folder changes
+            if old_status != status and old_key:
+                try:
+                    from document_service.utils.object_storage import build_object_key, move_object
+                    from document_service.models import Document
+                    document = db.query(Document).filter(Document.id == version.documentId).first()
+                    if document:
+                        new_key = build_object_key(
+                            str(document.organizationId),
+                            str(document.id),
+                            str(version.versionId),
+                            status.value
+                        )
+                        if new_key != old_key:
+                            move_object(old_key, new_key)
+                            version.objectKey = new_key
+                            version.storage_path = new_key
+                except Exception as e:
+                    logger.error(f"Failed to move object for version {version_id}: {e}")
+
             db.commit()
             return True
     except Exception as e:
@@ -102,19 +135,8 @@ def update_version_status_with_retry(version_id: uuid.UUID, status: DocumentVers
 def download_file_from_r2(object_key: str, local_path: str) -> bool:
     """Download file from R2 to local path for security checking."""
     try:
-        from utils.object_storage import download_url
-        import requests
-
-        url = download_url(object_key, "temp")
-        response = requests.get(url, stream=True, timeout=60)
-        if response.status_code != 200:
-            logger.error(f"Failed to download {object_key}: {response.status_code}")
-            return False
-
-        with open(local_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        return True
+        from document_service.utils.object_storage import get_object
+        return get_object(object_key, local_path)
     except Exception as e:
         logger.exception(f"Failed to download file {object_key}: {e}")
         return False
@@ -208,11 +230,11 @@ def process_version(version, security_orchestrator: DocumentSecurityOrchestrator
     result = run_security_checks_on_version(version, security_orchestrator)
 
     if result["status"] == "PASS":
-        # Security passed - mark as UPLOADED (ready for next processing stage)
-        # KEEP the temp file for next processing stages
-        success = update_version_status(version.versionId, DocumentVersionStatus.UPLOADED)
+        # Security passed - mark as AVAILABLE (ready for ingestion/processing)
+        # This matches backend's transition_to_available which moves file to safe/ folder
+        success = update_version_status(version.versionId, DocumentVersionStatus.AVAILABLE)
         if success:
-            logger.info(f"Version {version.versionId} passed security checks")
+            logger.info(f"Version {version.versionId} passed security checks, marked AVAILABLE")
         return success
 
     elif result["status"] == "QUARANTINE":

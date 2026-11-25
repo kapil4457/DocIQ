@@ -1,7 +1,7 @@
 """Models package."""
 
-from models.base import Base, AuditMixin
-from models.document import (
+from document_service.models.base import Base, AuditMixin
+from document_service.models.document import (
     Document,
     DocumentVersion,
     DocumentScope,

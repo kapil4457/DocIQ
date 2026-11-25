@@ -4,7 +4,7 @@ import zipfile
 
 from pathlib import PurePosixPath
 
-from ..config import DEFAULT_CONFIG, SecurityConfig
+from document_service.security.config import DEFAULT_CONFIG, SecurityConfig
 
 
 class ZipSecurityError(Exception):

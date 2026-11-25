@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import Enum as SAEnum, ForeignKey, Text, String, BigInteger, Index
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from models.base import Base, AuditMixin
+from document_service.models.base import Base, AuditMixin
 
 
 class MediaType(str, Enum):

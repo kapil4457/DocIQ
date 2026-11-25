@@ -3,7 +3,7 @@
 from typing import Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-from config import get_settings
+from document_service.config import get_settings
 
 settings = get_settings()
 
