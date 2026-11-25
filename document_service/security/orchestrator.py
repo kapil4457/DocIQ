@@ -6,17 +6,17 @@ import mimetypes
 from pathlib import Path
 from typing import Optional
 
-from config import SecurityConfig
-from models import (
+from document_service.security.config import SecurityConfig
+from document_service.security.models import (
     SecurityCheckResult,
     SecurityReport,
 )
-from validators.pdf import PDFSecurityCheck
-from validators.office import OfficeSecurityCheck
-from validators.ole import OLESecurityCheck
-from validators.csv import CsvSecurityCheck
-from validators.text import TextSecurityCheck
-from scanners.antivirus import (
+from document_service.security.validators.pdf import PDFSecurityCheck
+from document_service.security.validators.office import OfficeSecurityCheck
+from document_service.security.validators.ole import OLESecurityCheck
+from document_service.security.validators.csv import CsvSecurityCheck
+from document_service.security.validators.text import TextSecurityCheck
+from document_service.security.scanners.antivirus import (
     ClamAVScanner,
     AntivirusStatus,
 )

@@ -5,8 +5,8 @@ from defusedxml import ElementTree as ET
 from .base import FileSecurityCheck
 from .zip import ZipSecurityValidator, ZipSecurityError
 
-from ..models import SecurityReport, SecurityCheckResult
-from ..config import DEFAULT_CONFIG, SecurityConfig
+from document_service.security.models import SecurityReport, SecurityCheckResult
+from document_service.security.config import DEFAULT_CONFIG, SecurityConfig
 
 
 class OfficeSecurityCheck(FileSecurityCheck):

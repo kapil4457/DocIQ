@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from ..config import DEFAULT_CONFIG, SecurityConfig
-from ..models import SecurityReport, SecurityCheckResult
-from ..utils.streaming import inspect_file_stream
+from document_service.security.config import DEFAULT_CONFIG, SecurityConfig
+from document_service.security.models import SecurityReport, SecurityCheckResult
+from document_service.security.utils.streaming import inspect_file_stream
 
 
 MIME_EXTENSIONS = {

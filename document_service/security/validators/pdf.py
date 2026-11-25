@@ -1,8 +1,8 @@
 import fitz
 
 from .base import FileSecurityCheck
-from ..models import SecurityReport, SecurityCheckResult
-from ..config import DEFAULT_CONFIG, SecurityConfig
+from document_service.security.models import SecurityReport, SecurityCheckResult
+from document_service.security.config import DEFAULT_CONFIG, SecurityConfig
 
 
 class PDFSecurityCheck(FileSecurityCheck):

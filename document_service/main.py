@@ -16,7 +16,8 @@ from contextlib import contextmanager
 from config import get_settings
 from database import init_db, get_db_sync
 from models import DocumentVersion, DocumentVersionStatus
-from document_service.security.validators import SecurityCheckerFactory, SecurityCheckResult, run_security_check
+from document_service.security import DocumentSecurityOrchestrator, SecurityConfig, SecurityCheckResult
+from document_service.security.scanners.antivirus import ClamAVScanner
 
 # Configure logging
 logging.basicConfig(
@@ -119,15 +120,15 @@ def download_file_from_r2(object_key: str, local_path: str) -> bool:
         return False
 
 
-def run_security_checks_on_version(version) -> dict:
+def run_security_checks_on_version(version, security_orchestrator: DocumentSecurityOrchestrator) -> dict:
     """Run security checks on a document version.
 
     Returns:
-        dict with keys: 'result' (PASS/FAIL/QUARANTINE), 'reason', 'details', 'temp_path' (if PASS)
+        dict with keys: 'status' (PASS/FAIL/QUARANTINE), 'reason', 'details', 'temp_path' (if PASS)
     """
     if not version.storage_path:
         return {
-            "result": "FAIL",
+            "status": "FAIL",
             "reason": "No storage path available for security check",
             "details": "Document version has no storage path"
         }
@@ -143,26 +144,22 @@ def run_security_checks_on_version(version) -> dict:
         # Download file
         if not download_file_from_r2(version.storage_path, temp_path):
             return {
-                "result": "FAIL",
+                "status": "FAIL",
                 "reason": "Failed to download file for security check",
                 "details": f"Could not download {version.storage_path}"
             }
-
-        # Get file size
-        file_size = os.path.getsize(temp_path)
 
         # Determine MIME type from mediaType
         from models import MediaType
         mime_type = version.mediaType.value if version.mediaType else "application/octet-stream"
 
-        # Run security check
-        from document_service.security.validators import run_security_check
-        report = run_security_check(temp_path, mime_type, file_size)
+        # Run security check using orchestrator
+        report = security_orchestrator.inspect(temp_path, mime_type=mime_type, filename=version.document_name)
 
-        if report.result == SecurityCheckResult.PASS:
+        if report.status == SecurityCheckResult.PASS:
             # Keep temp file for next processing stages
             return {
-                "result": "PASS",
+                "status": "PASS",
                 "reason": "Security check passed",
                 "details": "File is safe for processing",
                 "checks": report.checks,
@@ -174,7 +171,7 @@ def run_security_checks_on_version(version) -> dict:
                 os.unlink(temp_path)
 
             # QUARANTINE gets specific reason, FAIL gets generic
-            if report.result == SecurityCheckResult.QUARANTINE:
+            if report.status == SecurityCheckResult.QUARANTINE:
                 reason = report.reason or "Security check failed"
                 details = report.details
             else:  # FAIL
@@ -182,7 +179,7 @@ def run_security_checks_on_version(version) -> dict:
                 details = report.details or report.reason
 
             return {
-                "result": report.result.value,
+                "status": report.status.value,
                 "reason": reason,
                 "details": details,
                 "checks": report.checks,
@@ -193,13 +190,13 @@ def run_security_checks_on_version(version) -> dict:
             os.unlink(temp_path)
         logger.exception(f"Security check failed with exception: {e}")
         return {
-            "result": "FAIL",
+            "status": "FAIL",
             "reason": f"Security check error: {str(e)}",
             "details": str(e),
         }
 
 
-def process_version(version) -> bool:
+def process_version(version, security_orchestrator: DocumentSecurityOrchestrator) -> bool:
     """Process a single document version through security checks."""
     logger.info(f"Processing version {version.versionId} (document: {version.documentId})")
 
@@ -208,9 +205,9 @@ def process_version(version) -> bool:
         return False
 
     # Run security checks
-    result = run_security_checks_on_version(version)
+    result = run_security_checks_on_version(version, security_orchestrator)
 
-    if result["result"] == "PASS":
+    if result["status"] == "PASS":
         # Security passed - mark as UPLOADED (ready for next processing stage)
         # KEEP the temp file for next processing stages
         success = update_version_status(version.versionId, DocumentVersionStatus.UPLOADED)
@@ -218,7 +215,7 @@ def process_version(version) -> bool:
             logger.info(f"Version {version.versionId} passed security checks")
         return success
 
-    elif result["result"] == "QUARANTINE":
+    elif result["status"] == "QUARANTINE":
         # Security failed critically - quarantine
         reason = result.get("reason", "Security check failed")
         success = update_version_status(
@@ -259,7 +256,7 @@ def process_version(version) -> bool:
             return success
 
 
-def run_worker_loop():
+def run_worker_loop(security_orchestrator: DocumentSecurityOrchestrator):
     """Main worker loop - fetch and process pending versions."""
     logger.info("Starting document service worker...")
     logger.info(f"Poll interval: {settings.worker_poll_interval}s, Batch size: {settings.worker_batch_size}")
@@ -279,7 +276,7 @@ def run_worker_loop():
             # Process each version
             for version in versions:
                 try:
-                    process_version(version)
+                    process_version(version, security_orchestrator)
                 except Exception as e:
                     logger.exception(f"Error processing version {version.versionId}: {e}")
                     # Mark as UPLOADED for retry
@@ -304,8 +301,15 @@ def main():
     init_db()
     logger.info("Database initialized")
 
+    # Initialize security orchestrator
+    logger.info("Initializing security orchestrator...")
+    security_config = SecurityConfig()
+    clamav_scanner = ClamAVScanner()
+    security_orchestrator = DocumentSecurityOrchestrator(config=security_config, antivirus_scanner=clamav_scanner)
+    logger.info("Security orchestrator initialized")
+
     # Run worker loop
-    run_worker_loop()
+    run_worker_loop(security_orchestrator)
 
     logger.info("Document Service Background Task Stopped")
 
