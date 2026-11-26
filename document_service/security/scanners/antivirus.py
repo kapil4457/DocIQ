@@ -57,19 +57,6 @@ class ClamAVScanner:
         # Translate path for ClamAV in Docker
         container_path = self._translate_path(file_path)
 
-        # Debug: check if file exists
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.debug(f"Scanning file: host={file_path}, container={container_path}")
-        logger.debug(f"Host file exists: {os.path.exists(file_path)}")
-
-        # Check if container can see it
-        try:
-            # We can't easily check container filesystem from host
-            pass
-        except:
-            pass
-
         try:
 
             client = clamd.ClamdNetworkSocket(
@@ -88,7 +75,6 @@ class ClamAVScanner:
                 raise RuntimeError("ClamAV version unavailable")
 
             # Scan file using container path.
-            logger.debug(f"Scanning container path: {container_path}")
             result = client.scan(container_path)
 
             if not result:

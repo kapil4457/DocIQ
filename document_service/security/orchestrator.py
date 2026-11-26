@@ -252,9 +252,7 @@ class DocumentSecurityOrchestrator:
 
             else:
                 try:
-                    logger.info(f"Starting antivirus scan for file: {path} (exists: {path.exists()})")
                     av_result = self.antivirus_scanner.scan(str(path))
-                    logger.info(f"Antivirus result: {av_result}")
 
                 except Exception:
                     logger.exception(
