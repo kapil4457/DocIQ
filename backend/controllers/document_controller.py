@@ -21,7 +21,6 @@ from services.document_service import (
     get_organization_documents_handler,
     delete_document_version_handler,
     get_document_version_download_handler,
-    get_processable_document_versions,
     transition_to_available,
     transition_to_quarantined,
 )
@@ -129,21 +128,6 @@ def complete_document_upload(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except ObjectStorageError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.detail)
-
-
-@router.get("/processable", response_model=list[dict])
-def get_processable_versions(
-    db: Annotated[Session, Depends(get_db)],
-    limit: int = Query(10, ge=1, le=100),
-):
-    """Get oldest document versions ready for processing.
-
-    Returns up to `limit` document versions with status UPLOADED or AVAILABLE
-    that are ready to be processed. Ordered by creation date (oldest first).
-
-    This endpoint is intended for worker services to poll for work.
-    """
-    return get_processable_document_versions(db, limit)
 
 
 @router.post("/{document_id}/versions/{version_id}/quarantine")
